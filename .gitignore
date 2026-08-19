@@ -46,3 +46,7 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Release artifacts are delivered separately and not committed to source repository
+dist/*.apk
+dist/symbols/
