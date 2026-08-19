@@ -1,0 +1,9 @@
+name: font_awesome_flutter
+version: 11.0.0
+publish_to: none
+environment:
+  sdk: ^3.13.0
+  flutter: '>=3.27.0'
+dependencies:
+  flutter:
+    sdk: flutter
