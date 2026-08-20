@@ -9,9 +9,9 @@ void main() {
     final original = XmlElement.tag(
       'bibzcup',
       attributes: [
-        XmlAttribute(XmlName.parts('format'), 'bibzcup'),
-        XmlAttribute(XmlName.parts('version'), '2'),
-        XmlAttribute(XmlName.parts('manifest'), 'xml'),
+        XmlAttribute(XmlName('format'), 'bibzcup'),
+        XmlAttribute(XmlName('version'), '2'),
+        XmlAttribute(XmlName('manifest'), 'xml'),
       ],
       children: [
         XmlElement.tag(
@@ -23,8 +23,8 @@ void main() {
                 XmlElement.tag(
                   'field',
                   attributes: [
-                    XmlAttribute(XmlName.parts('name'), 'title'),
-                    XmlAttribute(XmlName.parts('type'), 'string'),
+                    XmlAttribute(XmlName('name'), 'title'),
+                    XmlAttribute(XmlName('type'), 'string'),
                   ],
                   children: [XmlText('Makan siang')],
                 ),

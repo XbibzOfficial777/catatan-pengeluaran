@@ -3388,7 +3388,7 @@ class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
             children: [
               Expanded(
                 child: DropdownButtonFormField<ExpenseCategory>(
-                  initialValue: _category,
+                  value: _category,
                   decoration: const InputDecoration(labelText: 'Kategori'),
                   items: ExpenseCategory.values
                       .map(
@@ -3422,7 +3422,7 @@ class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
           if (widget.accounts.isNotEmpty) ...[
             const SizedBox(height: 13),
             DropdownButtonFormField<String>(
-              initialValue: _accountId,
+              value: _accountId,
               decoration: const InputDecoration(labelText: 'Sumber dana'),
               items: [
                 const DropdownMenuItem<String>(
@@ -4318,30 +4318,28 @@ class ThemeSettingsSheet extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 13),
-            RadioGroup<ThemeMode>(
-              groupValue: selected,
-              onChanged: (value) {
-                if (value != null) {
-                  onSelected(value);
-                  Navigator.pop(context);
-                }
-              },
-              child: Column(
-                children: options
-                    .map(
-                      (option) => RadioListTile<ThemeMode>(
-                        value: option.$1,
-                        title: Text(
-                          option.$2,
-                          style: const TextStyle(fontWeight: FontWeight.w600),
-                        ),
-                        secondary: Icon(option.$3, color: colors.primary),
-                        activeColor: colors.primary,
-                        contentPadding: EdgeInsets.zero,
+            Column(
+              children: options
+                  .map<Widget>(
+                    (option) => RadioListTile<ThemeMode>(
+                      value: option.$1,
+                      groupValue: selected,
+                      onChanged: (value) {
+                        if (value != null) {
+                          onSelected(value);
+                          Navigator.pop(context);
+                        }
+                      },
+                      title: Text(
+                        option.$2,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
-                    )
-                    .toList(),
-              ),
+                      secondary: Icon(option.$3, color: colors.primary),
+                      activeColor: colors.primary,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  )
+                  .toList(),
             ),
           ],
         ),

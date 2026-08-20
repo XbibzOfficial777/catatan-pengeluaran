@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive.dart';
-import 'package:excel_plus/excel_plus.dart';
+import 'package:excel/excel.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:xml/xml.dart';
 import 'package:path_provider/path_provider.dart';
@@ -50,9 +50,11 @@ class DataTransferService {
       allowedExtensions: ['bibzcup'],
       withData: false,
     );
-    if (picked.isEmpty || picked.first.path == null) return null;
+    if (picked == null || picked.files.isEmpty || picked.files.first.path == null) {
+      return null;
+    }
 
-    final source = File(picked.first.path!);
+    final source = File(picked.files.first.path!);
     if (!source.path.toLowerCase().endsWith('.bibzcup')) {
       throw const FormatException(
         'Restore ditolak: file harus berformat .bibzcup.',

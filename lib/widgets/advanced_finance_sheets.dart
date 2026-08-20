@@ -723,7 +723,7 @@ class _BudgetEditorDialogState extends State<BudgetEditorDialog> {
         mainAxisSize: MainAxisSize.min,
         children: [
           DropdownButtonFormField<ExpenseCategory>(
-            initialValue: _category,
+            value: _category,
             decoration: const InputDecoration(labelText: 'Kategori'),
             items: ExpenseCategory.values
                 .map(
@@ -859,7 +859,7 @@ class _AccountEditorDialogState extends State<AccountEditorDialog> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<MoneyAccountType>(
-              initialValue: _type,
+              value: _type,
               decoration: const InputDecoration(labelText: 'Jenis akun'),
               items: MoneyAccountType.values
                   .map(
@@ -873,7 +873,7 @@ class _AccountEditorDialogState extends State<AccountEditorDialog> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<String>(
-              initialValue: _brand,
+              value: _brand,
               decoration: const InputDecoration(labelText: 'Logo brand'),
               items: _brandOptions.entries
                   .map(
@@ -1009,7 +1009,7 @@ class _RecurringEditorDialogState extends State<RecurringEditorDialog> {
             ),
             const SizedBox(height: 12),
             DropdownButtonFormField<ExpenseCategory>(
-              initialValue: _category,
+              value: _category,
               decoration: const InputDecoration(labelText: 'Kategori'),
               items: ExpenseCategory.values
                   .map(
@@ -1035,7 +1035,7 @@ class _RecurringEditorDialogState extends State<RecurringEditorDialog> {
             if (widget.accounts.isNotEmpty) ...[
               const SizedBox(height: 12),
               DropdownButtonFormField<String?>(
-                initialValue: _accountId,
+                value: _accountId,
                 decoration: const InputDecoration(labelText: 'Akun sumber'),
                 items: [
                   const DropdownMenuItem<String?>(

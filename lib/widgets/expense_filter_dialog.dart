@@ -70,7 +70,7 @@ class _ExpenseFilterDialogState extends State<ExpenseFilterDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
             DropdownButtonFormField<ExpenseCategory?>(
-              initialValue: _category,
+              value: _category,
               decoration: const InputDecoration(labelText: 'Kategori'),
               items: [
                 const DropdownMenuItem<ExpenseCategory?>(
@@ -89,7 +89,7 @@ class _ExpenseFilterDialogState extends State<ExpenseFilterDialog> {
             if (widget.accounts.isNotEmpty) ...[
               const SizedBox(height: 12),
               DropdownButtonFormField<String?>(
-                initialValue: _accountId,
+                value: _accountId,
                 decoration: const InputDecoration(labelText: 'Akun'),
                 items: [
                   const DropdownMenuItem<String?>(

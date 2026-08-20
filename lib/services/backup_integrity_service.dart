@@ -60,10 +60,10 @@ class BackupIntegrityService {
     return XmlElement.tag(
       'bibzcup',
       attributes: [
-        XmlAttribute(XmlName.parts('format'), 'bibzcup'),
-        XmlAttribute(XmlName.parts('version'), '2'),
-        XmlAttribute(XmlName.parts('manifest'), 'xml'),
-        XmlAttribute(XmlName.parts('compression'), 'zip-deflate-level-9'),
+        XmlAttribute(XmlName('format'), 'bibzcup'),
+        XmlAttribute(XmlName('version'), '2'),
+        XmlAttribute(XmlName('manifest'), 'xml'),
+        XmlAttribute(XmlName('compression'), 'zip-deflate-level-9'),
       ],
       children: [
         _textElement('createdAt', createdAt.toIso8601String()),
@@ -99,8 +99,8 @@ class BackupIntegrityService {
         return XmlElement.tag(
           'field',
           attributes: [
-            XmlAttribute(XmlName.parts('name'), entry.key),
-            XmlAttribute(XmlName.parts('type'), type),
+            XmlAttribute(XmlName('name'), entry.key),
+            XmlAttribute(XmlName('type'), type),
           ],
           children: [XmlText(text)],
         );
@@ -112,8 +112,8 @@ class BackupIntegrityService {
     return XmlElement.tag(
       'file',
       attributes: [
-        XmlAttribute(XmlName.parts('path'), path),
-        XmlAttribute(XmlName.parts('sha256'), digest),
+        XmlAttribute(XmlName('path'), path),
+        XmlAttribute(XmlName('sha256'), digest),
       ],
     );
   }
@@ -122,9 +122,9 @@ class BackupIntegrityService {
     return XmlElement.tag(
       'integrity',
       attributes: [
-        XmlAttribute(XmlName.parts('algorithm'), _algorithm),
-        XmlAttribute(XmlName.parts('scope'), 'device-keystore'),
-        XmlAttribute(XmlName.parts('value'), signature),
+        XmlAttribute(XmlName('algorithm'), _algorithm),
+        XmlAttribute(XmlName('scope'), 'device-keystore'),
+        XmlAttribute(XmlName('value'), signature),
       ],
     );
   }
@@ -217,14 +217,17 @@ class BackupIntegrityService {
     ))
       return false;
     for (final entry in expectedHashes.entries) {
-      final bytes = files[entry.key]?.readBytes();
-      if (bytes == null) return false;
-      if (await sha256Bytes(bytes) != entry.value) return false;
+      final content = files[entry.key]?.content;
+      if (content is! List<int>) return false;
+      if (await sha256Bytes(content) != entry.value) return false;
     }
     return true;
   }
 
-  List<int> bytes(ArchiveFile file) => file.readBytes() ?? <int>[];
+  List<int> bytes(ArchiveFile file) {
+    final content = file.content;
+    return content is List<int> ? List<int>.from(content) : <int>[];
+  }
 
   XmlElement _textElement(String name, String value) =>
       XmlElement.tag(name, children: [XmlText(value)]);
