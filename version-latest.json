@@ -1,5 +1,5 @@
 {
-  "version": "1.3.2",
+  "version": "1.3.3",
   "versionCode": 11,
   "releaseNotes": "Perbaikan restore .bibzcup: filter file picker aman untuk Android, validasi ekstensi manual, dan kompatibilitas FlutLab Dart 3.8.1.",
   "universalApkUrl": "https://github.com/XbibzOfficial777/catatan-pengeluaran/releases/latest/download/Catatan-Pengeluaran-universal.apk",
