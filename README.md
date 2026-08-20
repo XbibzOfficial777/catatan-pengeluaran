@@ -6,6 +6,14 @@ Catatan Pengeluaran adalah aplikasi Android modern untuk mencatat pengeluaran pr
 
 Visual aplikasi diperbarui berdasarkan `DESIGN-cursor.md` dengan pendekatan editorial yang tenang: warm-cream canvas `#F7F7F4`, near-black warm ink `#26251E`, Cursor Orange `#F54E00` sebagai aksen utama yang digunakan secara hemat, kartu putih dengan hairline border, radius compact 8–12px, display weight ringan, dan tanpa drop shadow berlebihan. Animasi tetap dipertahankan pada transisi tab, kartu, suggestion pencarian, dan feedback aksi agar aplikasi terasa hidup namun tidak norak.
 
+## Uang Saku dan tujuan pengeluaran
+
+Dashboard memiliki kartu **Uang Saku** yang dapat diatur dan diedit kapan saja. Aplikasi menghitung sisa Uang Saku berdasarkan total pengeluaran yang tercatat dan memberi indikator ketika pengeluaran melebihi batas dana. Pada form transaksi, field utama menggunakan label **Untuk apa pengeluaran ini?** sehingga setiap nominal memiliki konteks yang jelas.
+
+Halaman hutang memiliki pencarian realtime berdasarkan nama, nomor telepon, dan catatan. Hasil langsung diperbarui saat pengguna mengetik, dengan suggestion nama dan nominal yang dapat dipilih.
+
+Catatan hutang dipisahkan menjadi dua kelompok yang berdiri sendiri: **Dipinjam Orang** untuk uang yang perlu diterima dan **Saya Berhutang** untuk uang yang perlu dibayarkan. Setiap kelompok menampilkan jumlah catatan aktif dan state kosong yang terpisah agar pengelolaan lebih mudah.
+
 ## Fitur utama
 
 Dashboard menampilkan total pengeluaran bulan berjalan, jumlah transaksi, hutang aktif, dan piutang aktif. Pengeluaran mendukung tambah, edit, hapus, kategori, nominal, tanggal, catatan, serta lampiran foto dari galeri atau kamera. Foto dapat diedit sebelum disimpan menggunakan editor internal yang mendukung crop, rotasi kanan/kiri, lingkaran/shape, coretan gambar, dan penyimpanan hasil edit.
@@ -70,6 +78,19 @@ android/app/build.gradle.kts              # Package, SDK, minify, dan resource s
 ## Kompatibilitas
 
 Aplikasi menggunakan minimum SDK Android 24 untuk Android 7 dan target/compile SDK 36 untuk Android 16. Icon aplikasi tersedia pada seluruh density Android dari mdpi sampai xxxhdpi. Permission kontak, storage, file picker, dan share bersifat opsional serta hanya digunakan ketika fitur terkait dipilih.
+
+## GitHub Actions dan Releases
+
+Workflow `.github/workflows/android-release.yml` menjalankan `flutter analyze` dan `flutter test`, kemudian membangun APK release split-ABI dengan obfuscation Dart, split debug symbols, R8, resource shrinking, dan optimasi icon. Workflow berjalan saat tag versi dengan pola `v*.*.*` dibuat dan mengunggah tiga APK serta `SHA256SUMS.txt` ke GitHub Releases. Workflow juga dapat dijalankan manual melalui tab **Actions**.
+
+Untuk membuat release baru:
+
+```bash
+git tag v1.1.0
+git push origin v1.1.0
+```
+
+GitHub Actions akan membuat release otomatis dan mengunggah APK `arm64-v8a`, `armeabi-v7a`, serta `x86_64`.
 
 ## Build normal
 

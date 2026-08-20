@@ -10,6 +10,7 @@ class BackupService {
   Future<File> createBackup({
     required List<ExpenseEntry> expenses,
     required List<DebtEntry> debts,
+    double pocketMoney = 0,
   }) async {
     await _requestStoragePermission();
     final root = Directory('/storage/emulated/0/Documents/CatatBibz');
@@ -36,6 +37,7 @@ class BackupService {
       'version': 1,
       'createdAt': DateTime.now().toIso8601String(),
       'compression': 'zip-deflate-level-9',
+      'pocketMoney': pocketMoney,
       'expenses': expenseJson,
       'debts': debtJson,
     };

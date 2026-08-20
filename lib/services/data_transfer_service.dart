@@ -9,11 +9,12 @@ import 'package:path_provider/path_provider.dart';
 import '../models/finance_models.dart';
 
 class RestorePayload {
-  const RestorePayload({required this.expenses, required this.debts, required this.sourceName});
+  const RestorePayload({required this.expenses, required this.debts, required this.sourceName, this.pocketMoney = 0});
 
   final List<ExpenseEntry> expenses;
   final List<DebtEntry> debts;
   final String sourceName;
+  final double pocketMoney;
 }
 
 class DataTransferService {
@@ -31,6 +32,7 @@ class DataTransferService {
 
     final manifest = jsonDecode(utf8.decode(_bytes(manifestFile))) as Map<String, dynamic>;
     if (manifest['format'] != 'bibzcup') throw const FormatException('Format backup tidak dikenali.');
+    final pocketMoney = (manifest['pocketMoney'] as num?)?.toDouble() ?? 0;
 
     final documents = await getApplicationDocumentsDirectory();
     final restoredPhotos = Directory('${documents.path}/attachments');
@@ -48,10 +50,10 @@ class DataTransferService {
       debts.add(DebtEntry.fromJson(json));
     }
 
-    return RestorePayload(expenses: expenses, debts: debts, sourceName: source.path.split('/').last);
+    return RestorePayload(expenses: expenses, debts: debts, sourceName: source.path.split('/').last, pocketMoney: pocketMoney);
   }
 
-  Future<File> createSpreadsheet({required List<ExpenseEntry> expenses, required List<DebtEntry> debts}) async {
+  Future<File> createSpreadsheet({required List<ExpenseEntry> expenses, required List<DebtEntry> debts, double pocketMoney = 0}) async {
     final workbook = Excel.createExcel();
     workbook.rename('Sheet1', 'Overview');
     final overview = workbook['Overview'];
@@ -59,7 +61,7 @@ class DataTransferService {
     final debtsSheet = workbook['Hutang & Piutang'];
     workbook.setDefaultSheet('Overview');
 
-    _configureOverview(overview, expenses, debts);
+    _configureOverview(overview, expenses, debts, pocketMoney);
     _configureTransactions(transactions, expenses, debts);
     _configureDebts(debtsSheet, debts);
 
@@ -72,7 +74,7 @@ class DataTransferService {
     return file;
   }
 
-  void _configureOverview(Sheet sheet, List<ExpenseEntry> expenses, List<DebtEntry> debts) {
+  void _configureOverview(Sheet sheet, List<ExpenseEntry> expenses, List<DebtEntry> debts, double pocketMoney) {
     _hideGrid(sheet);
     _setWidths(sheet, {0: 3, 1: 23, 2: 18, 3: 18, 4: 18, 5: 18, 6: 4, 7: 22, 8: 18});
     sheet.merge(CellIndex.indexByString('B2'), CellIndex.indexByString('I2'), customValue: TextCellValue('CATATAN PENGELUARAN'));
@@ -81,11 +83,14 @@ class DataTransferService {
     _put(sheet, 1, 4, TextCellValue('RINGKASAN UTAMA'), _sectionStyle());
 
     final totalExpense = expenses.fold<double>(0, (sum, item) => sum + item.amount);
+    final remainingPocketMoney = pocketMoney - totalExpense;
     final payable = debts.where((item) => item.kind == DebtKind.payable && !item.isSettled).fold<double>(0, (sum, item) => sum + item.amount);
     final receivable = debts.where((item) => item.kind == DebtKind.receivable && !item.isSettled).fold<double>(0, (sum, item) => sum + item.amount);
     final settled = debts.where((item) => item.isSettled).length;
 
     final metrics = <List<Object>>[
+      ['Uang Saku', pocketMoney, 'Batas dana yang ditetapkan'],
+      ['Sisa Uang Saku', remainingPocketMoney, 'Uang saku dikurangi pengeluaran'],
       ['Total Pengeluaran', totalExpense, 'Semua transaksi tercatat'],
       ['Hutang Aktif', payable, 'Kewajiban yang belum lunas'],
       ['Piutang Aktif', receivable, 'Tagihan yang belum diterima'],
@@ -124,7 +129,7 @@ class DataTransferService {
 
   void _configureTransactions(Sheet sheet, List<ExpenseEntry> expenses, List<DebtEntry> debts) {
     _hideGrid(sheet);
-    final headers = ['No', 'Jenis', 'Status', 'Arah', 'Nama / Deskripsi', 'Kategori', 'Nominal (Rp)', 'Tanggal', 'Jatuh Tempo', 'Nomor Kontak', 'Catatan', 'Lampiran', 'Dibuat Pada'];
+    final headers = ['No', 'Jenis', 'Status', 'Arah', 'Untuk Apa / Nama', 'Kategori', 'Nominal (Rp)', 'Tanggal', 'Jatuh Tempo', 'Nomor Kontak', 'Catatan', 'Lampiran', 'Dibuat Pada'];
     final widths = <int, double>{0: 7, 1: 16, 2: 13, 3: 18, 4: 26, 5: 16, 6: 18, 7: 14, 8: 15, 9: 18, 10: 30, 11: 12, 12: 20};
     _setWidths(sheet, widths);
     _put(sheet, 0, 0, TextCellValue('LAPORAN DETAIL TRANSAKSI'), _titleStyle());

@@ -175,6 +175,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   final _transferService = DataTransferService();
   List<ExpenseEntry> _expenses = <ExpenseEntry>[];
   List<DebtEntry> _debts = <DebtEntry>[];
+  double _pocketMoney = 0;
   FinanceTab _tab = FinanceTab.overview;
   bool _isLoading = true;
   final _debtSearchController = TextEditingController();
@@ -195,20 +196,43 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   Future<void> _loadData() async {
     final expenses = await _storage.loadExpenses();
     final debts = await _storage.loadDebts();
+    final pocketMoney = await _storage.loadPocketMoney();
     if (!mounted) return;
     setState(() {
       _expenses = expenses..sort((a, b) => b.date.compareTo(a.date));
       _debts = debts..sort((a, b) => b.date.compareTo(a.date));
+      _pocketMoney = pocketMoney;
       _isLoading = false;
     });
   }
 
   double get _totalExpense => _expenses.fold(0, (sum, item) => sum + item.amount);
+  double get _remainingPocketMoney => _pocketMoney - _totalExpense;
   double get _payable => _debts.where((item) => item.kind == DebtKind.payable && !item.isSettled).fold(0, (sum, item) => sum + item.amount);
   double get _receivable => _debts.where((item) => item.kind == DebtKind.receivable && !item.isSettled).fold(0, (sum, item) => sum + item.amount);
 
   Future<void> _saveExpenses() => _storage.saveExpenses(_expenses);
   Future<void> _saveDebts() => _storage.saveDebts(_debts);
+  Future<void> _savePocketMoney() => _storage.savePocketMoney(_pocketMoney);
+
+  Future<void> _editPocketMoney() async {
+    final controller = TextEditingController(text: _pocketMoney == 0 ? '' : _pocketMoney.toStringAsFixed(0));
+    final value = await showDialog<double>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Atur Uang Saku'),
+        content: TextField(controller: controller, autofocus: true, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Jumlah Uang Saku', prefixText: 'Rp  ', hintText: 'Contoh: 500000')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Batal')),
+          FilledButton(onPressed: () => Navigator.pop(dialogContext, _parseAmount(controller.text)), child: const Text('Simpan')),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (value == null || value < 0 || !mounted) return;
+    setState(() => _pocketMoney = value);
+    await _savePocketMoney();
+  }
 
   void _showExpenseForm({ExpenseEntry? entry}) async {
     final result = await showModalBottomSheet<ExpenseEntry>(
@@ -290,7 +314,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
 
   Future<void> _createBackup() async {
     try {
-      final file = await _backupService.createBackup(expenses: _expenses, debts: _debts);
+      final file = await _backupService.createBackup(expenses: _expenses, debts: _debts, pocketMoney: _pocketMoney);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Backup tersimpan di CatatBibz: ${file.path.split('/').last}')));
     } catch (_) {
@@ -300,7 +324,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
 
   Future<void> _backupToGoogleDrive() async {
     try {
-      final file = await _backupService.createBackup(expenses: _expenses, debts: _debts);
+      final file = await _backupService.createBackup(expenses: _expenses, debts: _debts, pocketMoney: _pocketMoney);
       if (!mounted) return;
       final confirmed = await showDialog<bool>(
         context: context,
@@ -346,6 +370,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         if (mode == RestoreMode.replace) {
           _expenses = [...payload.expenses];
           _debts = [...payload.debts];
+          _pocketMoney = payload.pocketMoney;
         } else {
           final expenses = {for (final item in _expenses) item.id: item};
           final debts = {for (final item in _debts) item.id: item};
@@ -353,12 +378,14 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           for (final item in payload.debts) { debts[item.id] = item; }
           _expenses = expenses.values.toList();
           _debts = debts.values.toList();
+          if (payload.pocketMoney > 0) _pocketMoney = payload.pocketMoney;
         }
         _expenses.sort((a, b) => b.date.compareTo(a.date));
         _debts.sort((a, b) => b.date.compareTo(a.date));
       });
       await _saveExpenses();
       await _saveDebts();
+      await _savePocketMoney();
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${payload.expenses.length + payload.debts.length} catatan berhasil dipulihkan.')));
     } catch (error) {
       if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Restore gagal: ${error.toString().replaceFirst('FormatException: ', '')}')));
@@ -367,7 +394,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
 
   Future<void> _shareSpreadsheet() async {
     try {
-      final file = await _transferService.createSpreadsheet(expenses: _expenses, debts: _debts);
+      final file = await _transferService.createSpreadsheet(expenses: _expenses, debts: _debts, pocketMoney: _pocketMoney);
       await SharePlus.instance.share(ShareParams(
         title: 'Spreadsheet Catatan Pengeluaran',
         subject: 'Laporan Catatan Pengeluaran',
@@ -532,6 +559,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         children: [
           Text('Halo, yuk lebih sadar finansial.', style: TextStyle(color: colors.onSurface.withValues(alpha: 0.66), fontSize: 14)),
           const SizedBox(height: 18),
+          _buildPocketMoneyCard(colors),
+          const SizedBox(height: 14),
           _buildBalanceCard(colors),
           const SizedBox(height: 18),
           Row(
@@ -560,6 +589,31 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           const SizedBox(height: 12),
           _buildDebtSummary(colors),
         ],
+      ),
+    );
+  }
+
+  Widget _buildPocketMoneyCard(ColorScheme colors) {
+    final hasAllowance = _pocketMoney > 0;
+    final remaining = _remainingPocketMoney;
+    final isOver = remaining < 0;
+    return InkWell(
+      onTap: _editPocketMoney,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(17, 15, 13, 15),
+        decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(12), border: Border.all(color: colors.outline.withValues(alpha: 0.78))),
+        child: Row(children: [
+          Container(width: 38, height: 38, decoration: BoxDecoration(color: colors.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)), child: Icon(Icons.account_balance_wallet_outlined, color: colors.primary, size: 20)),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('Uang Saku', style: TextStyle(color: colors.onSurface.withValues(alpha: 0.62), fontSize: 12, fontWeight: FontWeight.w600)),
+            const SizedBox(height: 3),
+            Text(hasAllowance ? _formatCurrency(_pocketMoney) : 'Belum diatur', style: TextStyle(color: colors.onSurface, fontSize: 18, fontWeight: FontWeight.w700, letterSpacing: -0.2)),
+            if (hasAllowance) Text(isOver ? 'Melebihi ${_formatCurrency(remaining.abs())}' : 'Sisa ${_formatCurrency(remaining)}', style: TextStyle(color: isOver ? colors.error : _mint, fontSize: 11, fontWeight: FontWeight.w600)),
+          ])),
+          IconButton(tooltip: 'Edit Uang Saku', onPressed: _editPocketMoney, icon: Icon(Icons.edit_outlined, color: colors.onSurface.withValues(alpha: 0.55), size: 20)),
+        ]),
       ),
     );
   }
@@ -638,7 +692,6 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
             return haystack.contains(query);
           }).toList();
     final suggestions = query.isEmpty ? <DebtEntry>[] : filtered.take(6).toList();
-    final unsettled = filtered.where((item) => !item.isSettled).toList();
     final colors = Theme.of(context).colorScheme;
     return ListView(
       key: key,
@@ -682,25 +735,36 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                 ),
         ),
         const SizedBox(height: 18),
-        _SectionHeader(title: query.isEmpty ? 'Semua catatan' : 'Hasil pencarian', actionLabel: '${unsettled.length} aktif'),
-        const SizedBox(height: 12),
         if (_debts.isEmpty)
           _buildEmptyCard('Belum ada catatan hutang', 'Tambahkan siapa, jumlahnya, dan kapan harus selesai.', Icons.handshake_outlined)
         else if (filtered.isEmpty)
           _buildEmptyCard('Tidak ditemukan', 'Coba cari dengan nama, nomor telepon, atau kata di catatan.', Icons.search_off_rounded)
-        else
-          ...filtered.map((entry) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _DebtTile(
-                  entry: entry,
-                  onToggle: () => _toggleDebt(entry),
-                  onTap: () => _showDebtForm(entry: entry),
-                  onDelete: () => _deleteDebt(entry),
-                  onCommunicate: () => _openCommunication(entry),
-                ),
-              )),
+        else ...[
+          _buildDebtSection(title: 'Dipinjam Orang', subtitle: 'Uang yang perlu kamu terima', entries: filtered.where((item) => item.kind == DebtKind.receivable).toList(), color: _mint),
+          const SizedBox(height: 22),
+          _buildDebtSection(title: 'Saya Berhutang', subtitle: 'Uang yang perlu kamu bayarkan', entries: filtered.where((item) => item.kind == DebtKind.payable).toList(), color: _coral),
+        ],
       ],
     );
+  }
+
+  Widget _buildDebtSection({required String title, required String subtitle, required List<DebtEntry> entries, required Color color}) {
+    final activeCount = entries.where((item) => !item.isSettled).length;
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(title, style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 18, fontWeight: FontWeight.w700, letterSpacing: -0.15)),
+          const SizedBox(height: 3),
+          Text(subtitle, style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.58), fontSize: 12)),
+        ])),
+        Container(padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5), decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(999)), child: Text('$activeCount aktif', style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w700))),
+      ]),
+      const SizedBox(height: 10),
+      if (entries.isEmpty)
+        Container(width: double.infinity, padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15), decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface, borderRadius: BorderRadius.circular(10), border: Border.all(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.65))), child: Text('Belum ada catatan di bagian ini.', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.58), fontSize: 13)))
+      else
+        ...entries.map((entry) => Padding(padding: const EdgeInsets.only(bottom: 10), child: _DebtTile(entry: entry, onToggle: () => _toggleDebt(entry), onTap: () => _showDebtForm(entry: entry), onDelete: () => _deleteDebt(entry), onCommunicate: () => _openCommunication(entry)))),
+    ]);
   }
 
   Widget _buildDebtSummary(ColorScheme colors) {
@@ -1009,7 +1073,7 @@ class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
     return _SheetShell(
       title: widget.entry == null ? 'Catat pengeluaran' : 'Edit pengeluaran',
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        TextField(controller: _title, textCapitalization: TextCapitalization.sentences, textInputAction: TextInputAction.next, decoration: const InputDecoration(labelText: 'Nama transaksi', hintText: 'Contoh: Makan siang')),
+        TextField(controller: _title, textCapitalization: TextCapitalization.sentences, textInputAction: TextInputAction.next, decoration: const InputDecoration(            labelText: 'Untuk apa pengeluaran ini?', hintText: 'Contoh: Makan siang, ongkos, pulsa')),
         const SizedBox(height: 13),
         TextField(controller: _amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Nominal', prefixText: 'Rp  ', hintText: '0')),
         const SizedBox(height: 13),

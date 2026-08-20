@@ -8,6 +8,7 @@ class FinanceStorage {
   static const _expenseKey = 'expense_entries_v1';
   static const _debtKey = 'debt_entries_v1';
   static const _themeKey = 'theme_mode_v1';
+  static const _pocketMoneyKey = 'pocket_money_v1';
 
   Future<List<ExpenseEntry>> loadExpenses() async {
     final preferences = await SharedPreferences.getInstance();
@@ -33,6 +34,16 @@ class FinanceStorage {
       _debtKey,
       jsonEncode(entries.map((entry) => entry.toJson()).toList()),
     );
+  }
+
+  Future<double> loadPocketMoney() async {
+    final preferences = await SharedPreferences.getInstance();
+    return preferences.getDouble(_pocketMoneyKey) ?? 0;
+  }
+
+  Future<void> savePocketMoney(double amount) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setDouble(_pocketMoneyKey, amount);
   }
 
   Future<String?> loadThemeMode() async {
