@@ -1414,7 +1414,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       final current = await PackageInfo.fromPlatform();
       final latest = await AppUpdateService.instance.checkLatest();
       final currentCode = int.tryParse(current.buildNumber) ?? 0;
-      final hasUpdate = latest.versionCode > currentCode || latest.version != current.version;
+      // Android uses versionCode as the authoritative install/update order.
+      // A changed display version with the same code is not installable as an update.
+      final hasUpdate = latest.versionCode > currentCode ||
+          (currentCode == 0 && latest.version != current.version);
       if (!mounted) return;
       if (!hasUpdate) {
         ScaffoldMessenger.of(context).showSnackBar(

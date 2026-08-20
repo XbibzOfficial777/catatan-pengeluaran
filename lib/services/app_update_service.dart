@@ -21,13 +21,17 @@ class AppUpdateInfo {
   final String arm64ApkUrl;
   final String releaseNotes;
 
-  factory AppUpdateInfo.fromJson(Map<String, dynamic> json) => AppUpdateInfo(
-    version: json['version'] as String? ?? '0.0.0',
-    versionCode: (json['versionCode'] as num?)?.toInt() ?? 0,
-    universalApkUrl: json['universalApkUrl'] as String? ?? '',
-    arm64ApkUrl: json['arm64ApkUrl'] as String? ?? '',
-    releaseNotes: json['releaseNotes'] as String? ?? '',
-  );
+  factory AppUpdateInfo.fromJson(Map<String, dynamic> json) {
+    String readUrl(String primary, String fallback) =>
+        (json[primary] ?? json[fallback]) as String? ?? '';
+    return AppUpdateInfo(
+      version: json['version'] as String? ?? '0.0.0',
+      versionCode: (json['versionCode'] as num?)?.toInt() ?? 0,
+      universalApkUrl: readUrl('universalApkUrl', 'universalUrl'),
+      arm64ApkUrl: readUrl('arm64ApkUrl', 'downloadUrl'),
+      releaseNotes: json['releaseNotes'] as String? ?? '',
+    );
+  }
 }
 
 class AppUpdateService {
@@ -42,7 +46,12 @@ class AppUpdateService {
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
   Future<AppUpdateInfo> checkLatest() async {
-    final text = await _getText(latestJsonUrl);
+    final cacheBustedUrl = Uri.parse(latestJsonUrl).replace(
+      queryParameters: <String, String>{
+        'cacheBust': DateTime.now().millisecondsSinceEpoch.toString(),
+      },
+    );
+    final text = await _getText(cacheBustedUrl.toString());
     final decoded = jsonDecode(text);
     if (decoded is! Map) throw const FormatException('Format update tidak valid.');
     return AppUpdateInfo.fromJson(Map<String, dynamic>.from(decoded));
@@ -54,33 +63,56 @@ class AppUpdateService {
     required void Function(int received, int total) onProgress,
   }) async {
     await cleanupDownloadedApks();
-    final url = preferArm64 ? info.arm64ApkUrl : info.universalApkUrl;
-    if (url.isEmpty) throw const FormatException('URL APK belum tersedia.');
+    final urls = <String>{
+      if (preferArm64) info.arm64ApkUrl else info.universalApkUrl,
+      if (preferArm64) info.universalApkUrl else info.arm64ApkUrl,
+    }..removeWhere((url) => url.isEmpty);
+    if (urls.isEmpty) {
+      throw const FormatException('URL APK belum tersedia di version-latest.json.');
+    }
     final directory = await getTemporaryDirectory();
     final file = File('${directory.path}/catatan_pengeluaran_update_${info.version}.apk');
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
     try {
-      final request = await client.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 15));
-      request.followRedirects = true;
-      final response = await request.close().timeout(const Duration(seconds: 30));
-      if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw HttpException('Download APK HTTP ${response.statusCode}');
-      }
-      final total = response.contentLength;
-      var received = 0;
-      final sink = file.openWrite();
-      try {
-        await for (final chunk in response) {
-          sink.add(chunk);
-          received += chunk.length;
-          onProgress(received, total);
+      HttpException? lastHttpError;
+      for (final url in urls) {
+        final parsedUrl = Uri.tryParse(url);
+        if (parsedUrl == null || !parsedUrl.hasScheme) {
+          lastHttpError = HttpException('URL APK tidak valid: $url');
+          continue;
         }
-      } finally {
-        await sink.flush();
-        await sink.close();
+        try {
+          final request = await client.getUrl(parsedUrl).timeout(const Duration(seconds: 15));
+          request.followRedirects = true;
+          request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
+          final response = await request.close().timeout(const Duration(seconds: 30));
+          if (response.statusCode < 200 || response.statusCode >= 300) {
+            lastHttpError = HttpException(
+              'Download APK HTTP ${response.statusCode} dari $url. Pastikan GitHub Release memiliki asset APK tersebut.',
+            );
+            await response.drain<void>();
+            continue;
+          }
+          final total = response.contentLength;
+          var received = 0;
+          final sink = file.openWrite();
+          try {
+            await for (final chunk in response) {
+              sink.add(chunk);
+              received += chunk.length;
+              onProgress(received, total);
+            }
+          } finally {
+            await sink.flush();
+            await sink.close();
+          }
+          if (received == 0) throw const FileSystemException('APK kosong.');
+          return file.path;
+        } on HttpException catch (error) {
+          lastHttpError = error;
+        }
       }
-      if (received == 0) throw const FileSystemException('APK kosong.');
-      return file.path;
+      throw lastHttpError ?? const HttpException('Semua URL APK gagal diakses.');
     } finally {
       client.close(force: true);
     }
@@ -111,6 +143,8 @@ class AppUpdateService {
     try {
       final request = await client.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 12));
       request.followRedirects = true;
+      request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
+      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
       final response = await request.close().timeout(const Duration(seconds: 15));
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpException('Update check HTTP ${response.statusCode}');
