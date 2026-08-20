@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:image_editor_plus/image_editor_plus.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import 'models/finance_models.dart';
@@ -357,9 +358,16 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   String _debtQuery = '';
   String _expenseQuery = '';
 
+  static const _quickActionChannel = MethodChannel('catatan/quick_actions');
+
   @override
   void initState() {
     super.initState();
+    _quickActionChannel.setMethodCallHandler((call) async {
+      if (call.method == 'open_expense_form' && mounted) {
+        _showExpenseForm();
+      }
+    });
     _loadData();
     _loadImageFeed();
   }

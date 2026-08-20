@@ -36,11 +36,22 @@ class FinanceWidgetProvider : AppWidgetProvider() {
             launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
+        val addExpenseIntent = Intent(context, MainActivity::class.java).apply {
+            action = MainActivity.ACTION_ADD_EXPENSE
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP
+        }
+        val addExpensePendingIntent = PendingIntent.getActivity(
+            context,
+            widgetId + 10000,
+            addExpenseIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
         val views = RemoteViews(context.packageName, R.layout.finance_widget).apply {
             setTextViewText(R.id.widget_month_expense, monthExpense)
             setTextViewText(R.id.widget_pocket_money, pocketMoney)
             setTextViewText(R.id.widget_total_balance, totalBalance)
             setOnClickPendingIntent(R.id.widget_root, pendingIntent)
+            setOnClickPendingIntent(R.id.widget_add_expense, addExpensePendingIntent)
         }
         manager.updateAppWidget(widgetId, views)
     }
