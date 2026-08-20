@@ -15,8 +15,11 @@ import 'services/backup_service.dart';
 import 'services/communication_service.dart';
 import 'services/data_transfer_service.dart';
 import 'services/reminder_service.dart';
+import 'services/image_feed_service.dart';
 import 'models/reminder_models.dart';
 import 'widgets/reminder_settings_sheet.dart';
+import 'widgets/dashboard_image_rail.dart';
+import 'widgets/data_tools_sheet.dart';
 
 import 'package:share_plus/share_plus.dart';
 
@@ -155,10 +158,144 @@ class _CatatanPengeluaranAppState extends State<CatatanPengeluaranApp> {
       themeMode: _themeMode,
       theme: _buildTheme(Brightness.light),
       darkTheme: _buildTheme(Brightness.dark),
-      home: FinanceHomePage(
+      home: SplashScreen(
         themeMode: _themeMode,
         onThemeModeChanged: _changeThemeMode,
       ),
+    );
+  }
+}
+
+class SplashScreen extends StatefulWidget {
+  const SplashScreen({
+    super.key,
+    required this.themeMode,
+    required this.onThemeModeChanged,
+  });
+
+  final ThemeMode themeMode;
+  final ValueChanged<ThemeMode> onThemeModeChanged;
+
+  @override
+  State<SplashScreen> createState() => _SplashScreenState();
+}
+
+class _SplashScreenState extends State<SplashScreen>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller =
+        AnimationController(
+            vsync: this,
+            duration: const Duration(milliseconds: 1050),
+          )
+          ..addStatusListener((status) {
+            if (status == AnimationStatus.completed && mounted) setState(() {});
+          })
+          ..forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 360),
+      child: _controller.isCompleted
+          ? FinanceHomePage(
+              themeMode: widget.themeMode,
+              onThemeModeChanged: widget.onThemeModeChanged,
+            )
+          : Scaffold(
+              body: Container(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      colors.primary,
+                      colors.primary.withValues(alpha: 0.78),
+                      colors.surface,
+                    ],
+                  ),
+                ),
+                child: Center(
+                  child: AnimatedBuilder(
+                    animation: _controller,
+                    builder: (context, child) => Opacity(
+                      opacity: Curves.easeOut.transform(_controller.value),
+                      child: Transform.scale(
+                        scale: 0.82 + (_controller.value * 0.18),
+                        child: child,
+                      ),
+                    ),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Container(
+                          width: 92,
+                          height: 92,
+                          decoration: BoxDecoration(
+                            color: Colors.white.withValues(alpha: 0.96),
+                            borderRadius: BorderRadius.circular(26),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.14),
+                                blurRadius: 24,
+                                offset: const Offset(0, 12),
+                              ),
+                            ],
+                          ),
+                          child: Icon(
+                            Icons.account_balance_wallet_rounded,
+                            color: colors.primary,
+                            size: 48,
+                          ),
+                        ),
+                        const SizedBox(height: 22),
+                        const Text(
+                          'Catatan Pengeluaran',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 22,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.3,
+                          ),
+                        ),
+                        const SizedBox(height: 7),
+                        Text(
+                          'Lebih sadar, lebih tertata.',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.82),
+                            fontSize: 13,
+                          ),
+                        ),
+                        const SizedBox(height: 28),
+                        SizedBox(
+                          width: 110,
+                          child: LinearProgressIndicator(
+                            minHeight: 3,
+                            borderRadius: BorderRadius.circular(99),
+                            backgroundColor: Colors.white.withValues(
+                              alpha: 0.2,
+                            ),
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
     );
   }
 }
@@ -187,9 +324,13 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   final _communicationService = CommunicationService();
   final _transferService = DataTransferService();
   final _reminderStorage = ReminderStorage();
+  final _imageFeedService = ImageFeedService();
   List<ExpenseEntry> _expenses = <ExpenseEntry>[];
   List<DebtEntry> _debts = <DebtEntry>[];
   List<ReminderSchedule> _reminders = <ReminderSchedule>[];
+  List<String> _dashboardImageUrls = const <String>[];
+  bool _imageFeedLoading = false;
+  bool _imageFeedFromCache = false;
   double _pocketMoney = 0;
   FinanceTab _tab = FinanceTab.overview;
   bool _isLoading = true;
@@ -200,6 +341,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   void initState() {
     super.initState();
     _loadData();
+    _loadImageFeed();
   }
 
   @override
@@ -237,6 +379,17 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   double get _receivable => _debts
       .where((item) => item.kind == DebtKind.receivable && !item.isSettled)
       .fold(0, (sum, item) => sum + item.amount);
+
+  Future<void> _loadImageFeed({bool forceRefresh = false}) async {
+    if (mounted) setState(() => _imageFeedLoading = true);
+    final snapshot = await _imageFeedService.load(forceRefresh: forceRefresh);
+    if (!mounted) return;
+    setState(() {
+      _dashboardImageUrls = snapshot.urls;
+      _imageFeedFromCache = snapshot.fromCache;
+      _imageFeedLoading = false;
+    });
+  }
 
   Future<void> _saveExpenses() => _storage.saveExpenses(_expenses);
   Future<void> _saveDebts() => _storage.saveDebts(_debts);
@@ -690,48 +843,23 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
             onPressed: _openCalculator,
             icon: const Icon(Icons.calculate_outlined),
           ),
-          PopupMenuButton<String>(
+          IconButton(
             tooltip: 'Data dan laporan',
-            onSelected: (value) {
-              if (value == 'backup') _createBackup();
-              if (value == 'drive') _backupToGoogleDrive();
-              if (value == 'restore') _restoreBackup();
-              if (value == 'csv') _shareSpreadsheet();
-            },
-            itemBuilder: (_) => const [
-              PopupMenuItem(
-                value: 'backup',
-                child: ListTile(
-                  leading: Icon(Icons.phone_android_rounded),
-                  title: Text('Backup ke perangkat'),
-                  contentPadding: EdgeInsets.zero,
-                ),
+            onPressed: () => showModalBottomSheet<void>(
+              context: context,
+              useSafeArea: true,
+              backgroundColor: colors.surface,
+              shape: const RoundedRectangleBorder(
+                borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
               ),
-              PopupMenuItem(
-                value: 'drive',
-                child: ListTile(
-                  leading: Icon(Icons.drive_file_move_outline),
-                  title: Text('Backup ke Google Drive'),
-                  contentPadding: EdgeInsets.zero,
-                ),
+              builder: (_) => DataToolsSheet(
+                onBackup: _createBackup,
+                onDrive: _backupToGoogleDrive,
+                onRestore: _restoreBackup,
+                onSpreadsheet: _shareSpreadsheet,
               ),
-              PopupMenuItem(
-                value: 'restore',
-                child: ListTile(
-                  leading: Icon(Icons.restore_rounded),
-                  title: Text('Restore backup'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-              PopupMenuItem(
-                value: 'csv',
-                child: ListTile(
-                  leading: Icon(Icons.table_view_rounded),
-                  title: Text('Share spreadsheet Excel'),
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-            ],
+            ),
+            icon: const Icon(Icons.more_horiz_rounded),
           ),
           IconButton(
             tooltip: 'Tema',
@@ -830,6 +958,13 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           ),
           const SizedBox(height: 18),
           _buildPocketMoneyCard(colors),
+          const SizedBox(height: 14),
+          DashboardImageRail(
+            urls: _dashboardImageUrls,
+            isLoading: _imageFeedLoading,
+            fromCache: _imageFeedFromCache,
+            onRefresh: () => _loadImageFeed(forceRefresh: true),
+          ),
           const SizedBox(height: 14),
           _buildBalanceCard(colors),
           const SizedBox(height: 18),
