@@ -45,7 +45,7 @@ class DataTransferService {
   final BackupIntegrityService _integrity;
 
   Future<RestorePayload?> pickAndRestore() async {
-    final picked = await FilePicker.pickFiles(
+    final picked = await FilePicker.platform.pickFiles(
       type: FileType.custom,
       allowedExtensions: ['bibzcup'],
       withData: false,

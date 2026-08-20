@@ -65,4 +65,5 @@ dist/Catatan-Pengeluaran-v1.3.0/
 
 # Local build and distribution artifacts
 /dist/
+/release-assets/
 /android/.kotlin/
