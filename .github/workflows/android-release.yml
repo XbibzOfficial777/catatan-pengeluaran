@@ -71,6 +71,20 @@ jobs:
           flutter analyze
           flutter test
 
+      - name: Inspect GitHub Actions runner
+        run: |
+          echo '--- Runner identity ---'
+          uname -a
+          echo '--- CPU / chip ---'
+          lscpu
+          echo '--- CPU model ---'
+          grep -m1 -E 'model name|Hardware|Processor' /proc/cpuinfo || true
+          echo '--- Memory ---'
+          free -h
+          grep -E 'MemTotal|MemAvailable|SwapTotal' /proc/meminfo
+          echo '--- Disk ---'
+          df -h /
+
       - name: Configure fast CI build
         run: |
           sed -i -E 's/-Xmx[0-9]+m/-Xmx4g/' android/gradle.properties
@@ -84,6 +98,12 @@ jobs:
           flutter build apk --release
           --no-shrink --no-tree-shake-icons
 
+      - name: Preserve universal APK before split build
+        run: |
+          mkdir -p release-assets
+          cp build/app/outputs/flutter-apk/app-release.apk release-assets/Catatan-Pengeluaran-universal.apk
+          cp build/app/outputs/apk/release/app-release.apk.idsig release-assets/Catatan-Pengeluaran-universal.apk.idsig
+
       - name: Build arm64-v8a split fast release APK
         run: >-
           flutter build apk --release --split-per-abi
@@ -93,8 +113,6 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p release-assets
-          cp build/app/outputs/flutter-apk/app-release.apk release-assets/Catatan-Pengeluaran-universal.apk
-          cp build/app/outputs/apk/release/app-release.apk.idsig release-assets/Catatan-Pengeluaran-universal.apk.idsig
           cp build/app/outputs/apk/release/app-arm64-v8a-release.apk release-assets/Catatan-Pengeluaran-arm64-v8a.apk
           cp build/app/outputs/apk/release/app-arm64-v8a-release.apk.idsig release-assets/Catatan-Pengeluaran-arm64-v8a.apk.idsig
           sha256sum release-assets/Catatan-Pengeluaran-universal.apk release-assets/Catatan-Pengeluaran-universal.apk.idsig release-assets/Catatan-Pengeluaran-arm64-v8a.apk release-assets/Catatan-Pengeluaran-arm64-v8a.apk.idsig > release-assets/SHA256SUMS.txt
@@ -119,7 +137,7 @@ jobs:
 
             - Output universal: `Catatan-Pengeluaran-universal.apk`.
             - Output arm64-v8a: `Catatan-Pengeluaran-arm64-v8a.apk`.
-            - CI memakai fast mode arm64-v8a agar release cepat; APK sandbox tetap dibuild dengan R8 minification dan resource shrinking penuh.
+            - CI memakai fast mode untuk universal dan arm64-v8a agar release cepat; APK sandbox tetap dibuild dengan R8 minification dan resource shrinking penuh.
             - Release ditandatangani dengan APK Signature Scheme v2, v3, dan v4; v1/JAR signing dinonaktifkan.
             - Fast mode CI menonaktifkan shrink/obfuscation hanya untuk kecepatan; APK sandbox dapat dibuild dengan kompresi penuh.
             - `Catatan-Pengeluaran-arm64-v8a.apk.idsig` adalah berkas signature v4 untuk Android 11+.
