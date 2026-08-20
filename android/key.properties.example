@@ -1,0 +1,6 @@
+# Copy this file to android/key.properties and fill in local values.
+# Never commit android/key.properties or any keystore file.
+storePassword=CHANGE_ME
+keyPassword=CHANGE_ME
+keyAlias=xbibzofcv1
+storeFile=keystores/xbibzofcv1.jks

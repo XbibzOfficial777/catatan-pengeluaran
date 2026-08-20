@@ -44,6 +44,25 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-pub-
 
+      - name: Configure release signing
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_BASE64" || (echo 'Missing ANDROID_KEYSTORE_BASE64 secret' >&2; exit 1)
+          test -n "$STORE_PASSWORD" || (echo 'Missing ANDROID_KEYSTORE_PASSWORD secret' >&2; exit 1)
+          test -n "$KEY_PASSWORD" || (echo 'Missing ANDROID_KEY_PASSWORD secret' >&2; exit 1)
+          mkdir -p android/keystores
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > android/keystores/xbibzofcv1.jks
+          cat > android/key.properties <<EOF
+          storePassword=$STORE_PASSWORD
+          keyPassword=$KEY_PASSWORD
+          keyAlias=xbibzofcv1
+          storeFile=keystores/xbibzofcv1.jks
+          EOF
+          chmod 600 android/key.properties android/keystores/xbibzofcv1.jks
+
       - name: Install dependencies
         run: flutter pub get
 
@@ -67,11 +86,12 @@ jobs:
           flutter build apk --release --target-platform android-arm64
           --no-shrink --no-tree-shake-icons
 
-      - name: Prepare release asset
+      - name: Prepare release assets
         run: |
           mkdir -p release-assets
           cp build/app/outputs/flutter-apk/app-release.apk release-assets/Catatan-Pengeluaran-arm64-v8a.apk
-          sha256sum release-assets/Catatan-Pengeluaran-arm64-v8a.apk > release-assets/SHA256SUMS.txt
+          cp build/app/outputs/apk/release/app-release.apk.idsig release-assets/Catatan-Pengeluaran-arm64-v8a.apk.idsig
+          sha256sum release-assets/Catatan-Pengeluaran-arm64-v8a.apk release-assets/Catatan-Pengeluaran-arm64-v8a.apk.idsig > release-assets/SHA256SUMS.txt
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
@@ -93,5 +113,7 @@ jobs:
 
             - Target arsitektur: `arm64-v8a`.
             - CI memakai fast mode arm64-v8a agar release cepat; APK sandbox tetap dibuild dengan R8 minification dan resource shrinking penuh.
-            - Fast mode menonaktifkan shrink/obfuscation hanya pada CI agar build cepat; APK sandbox tetap memakai kompresi penuh.
-            - `SHA256SUMS.txt` tersedia untuk verifikasi checksum.
+            - Release ditandatangani dengan APK Signature Scheme v2, v3, dan v4; v1/JAR signing dinonaktifkan.
+            - Fast mode CI menonaktifkan shrink/obfuscation hanya untuk kecepatan; APK sandbox dapat dibuild dengan kompresi penuh.
+            - `Catatan-Pengeluaran-arm64-v8a.apk.idsig` adalah berkas signature v4 untuk Android 11+.
+            - `SHA256SUMS.txt` tersedia untuk verifikasi checksum APK dan idsig.

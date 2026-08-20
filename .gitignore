@@ -50,3 +50,13 @@ app.*.map.json
 # Release artifacts are delivered separately and not committed to source repository
 dist/*.apk
 dist/symbols/
+
+# Android release signing secrets
+android/key.properties
+android/keystores/
+*.jks
+*.keystore
+*.p12
+
+# Local signing scratch files
+signing/
