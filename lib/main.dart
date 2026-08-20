@@ -496,7 +496,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
 
   double get _totalExpense =>
       _expenses.fold(0, (sum, item) => sum + item.amount);
-  double get _remainingPocketMoney => _pocketMoney - _totalExpense;
+  double get _pocketMoneyExpense => _expenses
+      .where((item) => item.accountId == null)
+      .fold(0, (sum, item) => sum + item.amount);
+  double get _remainingPocketMoney => _pocketMoney - _pocketMoneyExpense;
   double get _payable => _debts
       .where((item) => item.kind == DebtKind.payable && !item.isSettled)
       .fold(0, (sum, item) => sum + item.amount);
@@ -1412,7 +1415,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Uang Saku',
+                    'Saldo Uang Saku',
                     style: TextStyle(
                       color: colors.onSurface.withValues(alpha: 0.62),
                       fontSize: 12,
@@ -1435,7 +1438,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                     Text(
                       isOver
                           ? 'Melebihi ${_formatCurrency(remaining.abs())}'
-                          : 'Sisa ${_formatCurrency(remaining)}',
+                          : 'Sisa Uang Saku ${_formatCurrency(remaining)}',
                       style: TextStyle(
                         color: isOver ? colors.error : _mint,
                         fontSize: 11,
@@ -1469,7 +1472,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           children: [
             Expanded(
               child: Text(
-                'Saldo per akun dan dompet',
+                'Saldo akun/dompet (di luar Uang Saku)',
                 style: Theme.of(context).textTheme.titleMedium
                     ?.copyWith(fontWeight: FontWeight.w800),
               ),
@@ -1707,7 +1710,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
               children: [
                 const Expanded(
                   child: Text(
-                    'Total pengeluaran bulan ini',
+                    'Total pengeluaran bulan ini (semua sumber dana)',
                     style: TextStyle(
                       color: Colors.white70,
                       fontSize: 13,
@@ -2812,13 +2815,11 @@ class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
             const SizedBox(height: 13),
             DropdownButtonFormField<String>(
               initialValue: _accountId,
-              decoration: const InputDecoration(
-                labelText: 'Akun sumber (opsional)',
-              ),
+              decoration: const InputDecoration(labelText: 'Sumber dana'),
               items: [
                 const DropdownMenuItem<String>(
                   value: null,
-                  child: Text('Tidak ditentukan'),
+                  child: Text('Uang Saku'),
                 ),
                 ...widget.accounts
                     .where((item) => !item.isArchived)

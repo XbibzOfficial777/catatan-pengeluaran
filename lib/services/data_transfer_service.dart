@@ -245,7 +245,10 @@ class DataTransferService {
       0,
       (sum, item) => sum + item.amount,
     );
-    final remainingPocketMoney = pocketMoney - totalExpense;
+    final pocketMoneyExpense = expenses
+        .where((item) => item.accountId == null)
+        .fold<double>(0, (sum, item) => sum + item.amount);
+    final remainingPocketMoney = pocketMoney - pocketMoneyExpense;
     final payable = debts
         .where((item) => item.kind == DebtKind.payable && !item.isSettled)
         .fold<double>(0, (sum, item) => sum + item.amount);
@@ -259,7 +262,7 @@ class DataTransferService {
       [
         'Sisa Uang Saku',
         remainingPocketMoney,
-        'Uang saku dikurangi pengeluaran',
+        'Uang saku dikurangi transaksi dari Uang Saku',
       ],
       ['Total Pengeluaran', totalExpense, 'Semua transaksi tercatat'],
       ['Hutang Aktif', payable, 'Kewajiban yang belum lunas'],

@@ -132,7 +132,22 @@ class BackupIntegrityService {
     copy.children.removeWhere(
       (node) => node is XmlElement && node.name.local == 'integrity',
     );
+    _stripFormattingWhitespace(copy);
     return XmlDocument([copy]).toXmlString(pretty: false);
+  }
+
+  void _stripFormattingWhitespace(XmlElement element) {
+    final hasElementChildren = element.children.any(
+      (node) => node is XmlElement,
+    );
+    if (hasElementChildren) {
+      element.children.removeWhere(
+        (node) => node is XmlText && node.text.trim().isEmpty,
+      );
+    }
+    for (final child in element.children.whereType<XmlElement>()) {
+      _stripFormattingWhitespace(child);
+    }
   }
 
   Map<String, dynamic> parseEntry(XmlElement element) {

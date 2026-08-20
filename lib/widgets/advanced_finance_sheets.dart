@@ -246,7 +246,8 @@ class _AccountSettingsSheetState extends State<AccountSettingsSheet> {
       ),
     );
     if (ok == true && mounted) {
-      setState(() => _items.removeWhere((item) => item.id == account.id));
+      final updated = [..._items]..removeWhere((item) => item.id == account.id);
+      Navigator.pop(context, updated);
     }
   }
 
