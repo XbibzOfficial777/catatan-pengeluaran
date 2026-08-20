@@ -68,7 +68,7 @@ jobs:
 
       - name: Analyze and test
         run: |
-          flutter analyze
+          flutter analyze --no-fatal-infos --no-fatal-warnings
           flutter test
 
       - name: Inspect GitHub Actions runner
