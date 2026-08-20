@@ -2,6 +2,9 @@
 
 Catatan Pengeluaran adalah aplikasi Android modern untuk mencatat pengeluaran pribadi, hutang, piutang, dan lampiran foto. Aplikasi dibangun dengan Flutter 3.47.0 menggunakan package `com.catat.pengeluaran`.
 
+## VIDEO
+[!videooo](https://github.com/user-attachments/assets/1bdcb926-9645-4696-a811-15f91190445d)
+
 ## Arah desain
 
 Visual aplikasi diperbarui berdasarkan `DESIGN-cursor.md` dengan pendekatan editorial yang tenang: warm-cream canvas `#F7F7F4`, near-black warm ink `#26251E`, Cursor Orange `#F54E00` sebagai aksen utama yang digunakan secara hemat, kartu putih dengan hairline border, radius compact 8–12px, display weight ringan, dan tanpa drop shadow berlebihan. Animasi tetap dipertahankan pada transisi tab, kartu, suggestion pencarian, dan feedback aksi agar aplikasi terasa hidup namun tidak norak.
