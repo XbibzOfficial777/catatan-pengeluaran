@@ -61,3 +61,4 @@ android/keystores/
 # Local signing scratch files
 signing/
 *.hprof
+dist/Catatan-Pengeluaran-v1.3.0/
