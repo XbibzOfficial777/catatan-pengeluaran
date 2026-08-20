@@ -14,6 +14,9 @@ import 'services/contact_service.dart';
 import 'services/backup_service.dart';
 import 'services/communication_service.dart';
 import 'services/data_transfer_service.dart';
+import 'services/reminder_service.dart';
+import 'models/reminder_models.dart';
+import 'widgets/reminder_settings_sheet.dart';
 
 import 'package:share_plus/share_plus.dart';
 
@@ -67,20 +70,23 @@ class _CatatanPengeluaranAppState extends State<CatatanPengeluaranApp> {
 
   ThemeData _buildTheme(Brightness brightness) {
     final isDark = brightness == Brightness.dark;
-    final scheme = ColorScheme.fromSeed(
-      seedColor: _indigo,
-      brightness: brightness,
-    ).copyWith(
-      primary: isDark ? const Color(0xFFFF7A3D) : _indigo,
-      onPrimary: Colors.white,
-      secondary: isDark ? const Color(0xFFFFA47A) : _mint,
-      onSecondary: Colors.white,
-      surface: isDark ? _darkSurface : const Color(0xFFFFFFFF),
-      onSurface: isDark ? const Color(0xFFF7F7F4) : _ink,
-      surfaceContainerHighest: isDark ? const Color(0xFF48453C) : const Color(0xFFE6E5E0),
-      outline: isDark ? const Color(0xFF625F55) : const Color(0xFFE6E5E0),
-      error: _coral,
-    );
+    final scheme =
+        ColorScheme.fromSeed(
+          seedColor: _indigo,
+          brightness: brightness,
+        ).copyWith(
+          primary: isDark ? const Color(0xFFFF7A3D) : _indigo,
+          onPrimary: Colors.white,
+          secondary: isDark ? const Color(0xFFFFA47A) : _mint,
+          onSecondary: Colors.white,
+          surface: isDark ? _darkSurface : const Color(0xFFFFFFFF),
+          onSurface: isDark ? const Color(0xFFF7F7F4) : _ink,
+          surfaceContainerHighest: isDark
+              ? const Color(0xFF48453C)
+              : const Color(0xFFE6E5E0),
+          outline: isDark ? const Color(0xFF625F55) : const Color(0xFFE6E5E0),
+          error: _coral,
+        );
     final base = ThemeData(
       useMaterial3: true,
       brightness: brightness,
@@ -105,7 +111,10 @@ class _CatatanPengeluaranAppState extends State<CatatanPengeluaranApp> {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: scheme.surface,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 16,
+          vertical: 15,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: scheme.outline),
@@ -124,12 +133,16 @@ class _CatatanPengeluaranAppState extends State<CatatanPengeluaranApp> {
         backgroundColor: scheme.surface,
         indicatorColor: scheme.primary.withValues(alpha: 0.12),
         labelTextStyle: WidgetStatePropertyAll(
-          TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: scheme.onSurface),
+          TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            color: scheme.onSurface,
+          ),
         ),
       ),
       snackBarTheme: SnackBarThemeData(
         behavior: SnackBarBehavior.floating,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
     );
   }
@@ -173,8 +186,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   final _backupService = BackupService();
   final _communicationService = CommunicationService();
   final _transferService = DataTransferService();
+  final _reminderStorage = ReminderStorage();
   List<ExpenseEntry> _expenses = <ExpenseEntry>[];
   List<DebtEntry> _debts = <DebtEntry>[];
+  List<ReminderSchedule> _reminders = <ReminderSchedule>[];
   double _pocketMoney = 0;
   FinanceTab _tab = FinanceTab.overview;
   bool _isLoading = true;
@@ -197,34 +212,101 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     final expenses = await _storage.loadExpenses();
     final debts = await _storage.loadDebts();
     final pocketMoney = await _storage.loadPocketMoney();
+    final reminders = await _reminderStorage.load();
+    try {
+      await ReminderService.instance.syncAll(reminders);
+    } catch (_) {
+      // A missing notification permission must not block the finance dashboard.
+    }
     if (!mounted) return;
     setState(() {
       _expenses = expenses..sort((a, b) => b.date.compareTo(a.date));
       _debts = debts..sort((a, b) => b.date.compareTo(a.date));
       _pocketMoney = pocketMoney;
+      _reminders = reminders;
       _isLoading = false;
     });
   }
 
-  double get _totalExpense => _expenses.fold(0, (sum, item) => sum + item.amount);
+  double get _totalExpense =>
+      _expenses.fold(0, (sum, item) => sum + item.amount);
   double get _remainingPocketMoney => _pocketMoney - _totalExpense;
-  double get _payable => _debts.where((item) => item.kind == DebtKind.payable && !item.isSettled).fold(0, (sum, item) => sum + item.amount);
-  double get _receivable => _debts.where((item) => item.kind == DebtKind.receivable && !item.isSettled).fold(0, (sum, item) => sum + item.amount);
+  double get _payable => _debts
+      .where((item) => item.kind == DebtKind.payable && !item.isSettled)
+      .fold(0, (sum, item) => sum + item.amount);
+  double get _receivable => _debts
+      .where((item) => item.kind == DebtKind.receivable && !item.isSettled)
+      .fold(0, (sum, item) => sum + item.amount);
 
   Future<void> _saveExpenses() => _storage.saveExpenses(_expenses);
   Future<void> _saveDebts() => _storage.saveDebts(_debts);
   Future<void> _savePocketMoney() => _storage.savePocketMoney(_pocketMoney);
+  Future<void> _saveReminders() => _reminderStorage.save(_reminders);
+
+  Future<void> _openReminders() async {
+    final updated = await showModalBottomSheet<List<ReminderSchedule>>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => ReminderSettingsSheet(initialReminders: _reminders),
+    );
+    if (updated == null || !mounted) return;
+    final granted = await ReminderService.instance.requestPermission();
+    setState(() => _reminders = updated);
+    await _saveReminders();
+    try {
+      await ReminderService.instance.syncAll(updated);
+    } catch (_) {
+      // The schedules remain saved and can be synced again after permission is granted.
+    }
+    if (!granted && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Izin notifikasi belum diberikan. Jadwal tersimpan, tetapi notifikasi belum aktif.',
+          ),
+        ),
+      );
+    } else if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${updated.where((item) => item.enabled).length} pengingat aktif.',
+          ),
+        ),
+      );
+    }
+  }
 
   Future<void> _editPocketMoney() async {
-    final controller = TextEditingController(text: _pocketMoney == 0 ? '' : _pocketMoney.toStringAsFixed(0));
+    final controller = TextEditingController(
+      text: _pocketMoney == 0 ? '' : _pocketMoney.toStringAsFixed(0),
+    );
     final value = await showDialog<double>(
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Atur Uang Saku'),
-        content: TextField(controller: controller, autofocus: true, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Jumlah Uang Saku', prefixText: 'Rp  ', hintText: 'Contoh: 500000')),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'Jumlah Uang Saku',
+            prefixText: 'Rp  ',
+            hintText: 'Contoh: 500000',
+          ),
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Batal')),
-          FilledButton(onPressed: () => Navigator.pop(dialogContext, _parseAmount(controller.text)), child: const Text('Simpan')),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Batal'),
+          ),
+          FilledButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, _parseAmount(controller.text)),
+            child: const Text('Simpan'),
+          ),
         ],
       ),
     );
@@ -240,7 +322,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => ExpenseFormSheet(entry: entry, imageService: _imageService),
+      builder: (_) =>
+          ExpenseFormSheet(entry: entry, imageService: _imageService),
     );
     if (result == null) return;
     setState(() {
@@ -261,7 +344,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => DebtFormSheet(entry: entry, imageService: _imageService, contactService: _contactService),
+      builder: (_) => DebtFormSheet(
+        entry: entry,
+        imageService: _imageService,
+        contactService: _contactService,
+      ),
     );
     if (result == null) return;
     setState(() {
@@ -301,7 +388,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   void _showUndoSnackBar(String message, VoidCallback onUndo) {
     ScaffoldMessenger.of(context).hideCurrentSnackBar();
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), action: SnackBarAction(label: 'URUNGKAN', onPressed: onUndo)),
+      SnackBar(
+        content: Text(message),
+        action: SnackBarAction(label: 'URUNGKAN', onPressed: onUndo),
+      ),
     );
   }
 
@@ -314,39 +404,73 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
 
   Future<void> _createBackup() async {
     try {
-      final file = await _backupService.createBackup(expenses: _expenses, debts: _debts, pocketMoney: _pocketMoney);
+      final file = await _backupService.createBackup(
+        expenses: _expenses,
+        debts: _debts,
+        pocketMoney: _pocketMoney,
+        reminders: _reminders,
+      );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Backup tersimpan di CatatBibz: ${file.path.split('/').last}')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Backup tersimpan di CatatBibz: ${file.path.split('/').last}',
+          ),
+        ),
+      );
     } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Backup belum berhasil dibuat. Coba lagi.')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Backup belum berhasil dibuat. Coba lagi.'),
+          ),
+        );
     }
   }
 
   Future<void> _backupToGoogleDrive() async {
     try {
-      final file = await _backupService.createBackup(expenses: _expenses, debts: _debts, pocketMoney: _pocketMoney);
+      final file = await _backupService.createBackup(
+        expenses: _expenses,
+        debts: _debts,
+        pocketMoney: _pocketMoney,
+        reminders: _reminders,
+      );
       if (!mounted) return;
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: const Text('Backup ke Google Drive'),
-          content: const Text('Login akan dilakukan melalui aplikasi Google Drive atau browser/system. Catatan Pengeluaran tidak meminta atau menyimpan password Google.'),
+          content: const Text(
+            'Login akan dilakukan melalui aplikasi Google Drive atau browser/system. Catatan Pengeluaran tidak meminta atau menyimpan password Google.',
+          ),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Batal')),
-            FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Lanjutkan')),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, false),
+              child: const Text('Batal'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, true),
+              child: const Text('Lanjutkan'),
+            ),
           ],
         ),
       );
       if (confirmed != true) return;
-      await SharePlus.instance.share(ShareParams(
-        title: 'Backup Catatan Pengeluaran',
-        subject: 'Backup Catatan Pengeluaran',
-        text: 'Pilih Google Drive pada menu berbagi untuk menyimpan backup ini.',
-        files: [XFile(file.path, mimeType: 'application/zip')],
-        fileNameOverrides: [file.path.split('/').last],
-      ));
+      await SharePlus.instance.share(
+        ShareParams(
+          title: 'Backup Catatan Pengeluaran',
+          subject: 'Backup Catatan Pengeluaran',
+          text: 'Pilih Google Drive pada menu berbagi untuk menyimpan backup ini.',
+          files: [XFile(file.path, mimeType: 'application/zip')],
+          fileNameOverrides: [file.path.split('/').last],
+        ),
+      );
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Backup Google Drive gagal: $error')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Backup Google Drive gagal: $error')),
+        );
     }
   }
 
@@ -360,8 +484,15 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           title: const Text('Pulihkan backup'),
           content: Text('${payload.sourceName}\n\nPilih cara pemulihan data.'),
           actions: [
-            TextButton(onPressed: () => Navigator.pop(dialogContext, RestoreMode.merge), child: const Text('Gabungkan')),
-            FilledButton(onPressed: () => Navigator.pop(dialogContext, RestoreMode.replace), child: const Text('Ganti semua')),
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext, RestoreMode.merge),
+              child: const Text('Gabungkan'),
+            ),
+            FilledButton(
+              onPressed: () =>
+                  Navigator.pop(dialogContext, RestoreMode.replace),
+              child: const Text('Ganti semua'),
+            ),
           ],
         ),
       );
@@ -371,14 +502,21 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           _expenses = [...payload.expenses];
           _debts = [...payload.debts];
           _pocketMoney = payload.pocketMoney;
+          _reminders = [...payload.reminders];
         } else {
           final expenses = {for (final item in _expenses) item.id: item};
           final debts = {for (final item in _debts) item.id: item};
-          for (final item in payload.expenses) { expenses[item.id] = item; }
-          for (final item in payload.debts) { debts[item.id] = item; }
+          for (final item in payload.expenses) {
+            expenses[item.id] = item;
+          }
+          for (final item in payload.debts) {
+            debts[item.id] = item;
+          }
           _expenses = expenses.values.toList();
           _debts = debts.values.toList();
           if (payload.pocketMoney > 0) _pocketMoney = payload.pocketMoney;
+          if (payload.reminders.isNotEmpty)
+            _reminders = [..._reminders, ...payload.reminders];
         }
         _expenses.sort((a, b) => b.date.compareTo(a.date));
         _debts.sort((a, b) => b.date.compareTo(a.date));
@@ -386,31 +524,71 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       await _saveExpenses();
       await _saveDebts();
       await _savePocketMoney();
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('${payload.expenses.length + payload.debts.length} catatan berhasil dipulihkan.')));
+      await _saveReminders();
+      try {
+        await ReminderService.instance.syncAll(_reminders);
+      } catch (_) {
+        // Restore data must remain successful even when notification permission is denied.
+      }
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${payload.expenses.length + payload.debts.length} catatan dan ${payload.reminders.length} pengingat berhasil dipulihkan.',
+            ),
+          ),
+        );
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Restore gagal: ${error.toString().replaceFirst('FormatException: ', '')}')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'Restore gagal: ${error.toString().replaceFirst('FormatException: ', '')}',
+            ),
+          ),
+        );
     }
   }
 
   Future<void> _shareSpreadsheet() async {
     try {
-      final file = await _transferService.createSpreadsheet(expenses: _expenses, debts: _debts, pocketMoney: _pocketMoney);
-      await SharePlus.instance.share(ShareParams(
-        title: 'Spreadsheet Catatan Pengeluaran',
-        subject: 'Laporan Catatan Pengeluaran',
-        text: 'Spreadsheet profesional Catatan Pengeluaran dengan ringkasan, transaksi, dan hutang/piutang.',
-        files: [XFile(file.path, mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')],
-        fileNameOverrides: [file.path.split('/').last],
-      ));
+      final file = await _transferService.createSpreadsheet(
+        expenses: _expenses,
+        debts: _debts,
+        pocketMoney: _pocketMoney,
+      );
+      await SharePlus.instance.share(
+        ShareParams(
+          title: 'Spreadsheet Catatan Pengeluaran',
+          subject: 'Laporan Catatan Pengeluaran',
+          text: 'Spreadsheet profesional Catatan Pengeluaran dengan ringkasan, transaksi, dan hutang/piutang.',
+          files: [
+            XFile(
+              file.path,
+              mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            ),
+          ],
+          fileNameOverrides: [file.path.split('/').last],
+        ),
+      );
     } catch (error) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Export spreadsheet gagal: $error')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Export spreadsheet gagal: $error')),
+        );
     }
   }
 
   Future<void> _openCommunication(DebtEntry entry) async {
     final phone = entry.contactPhone;
     if (phone == null || phone.trim().isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Pilih kontak yang memiliki nomor telepon terlebih dahulu.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Pilih kontak yang memiliki nomor telepon terlebih dahulu.',
+          ),
+        ),
+      );
       return;
     }
     final request = await showModalBottomSheet<CommunicationRequest>(
@@ -422,10 +600,24 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     );
     if (request == null) return;
     final opened = request.channel == CommunicationChannel.whatsapp
-        ? await _communicationService.openWhatsApp(phone: phone, message: request.message)
-        : await _communicationService.openSms(phone: phone, message: request.message);
+        ? await _communicationService.openWhatsApp(
+            phone: phone,
+            message: request.message,
+          )
+        : await _communicationService.openSms(
+            phone: phone,
+            message: request.message,
+          );
     if (!opened && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(request.channel == CommunicationChannel.whatsapp ? 'WhatsApp tidak tersedia di perangkat ini.' : 'Aplikasi SMS tidak tersedia di perangkat ini.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            request.channel == CommunicationChannel.whatsapp
+                ? 'WhatsApp tidak tersedia di perangkat ini.'
+                : 'Aplikasi SMS tidak tersedia di perangkat ini.',
+          ),
+        ),
+      );
     }
   }
 
@@ -462,21 +654,42 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
             Container(
               width: 40,
               height: 40,
-              decoration: BoxDecoration(color: colors.primary, borderRadius: BorderRadius.circular(8)),
-              child: const Icon(Icons.account_balance_wallet_rounded, color: Colors.white, size: 21),
+              decoration: BoxDecoration(
+                color: colors.primary,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(
+                Icons.account_balance_wallet_rounded,
+                color: Colors.white,
+                size: 21,
+              ),
             ),
             const SizedBox(width: 11),
             Flexible(
               child: Text(
                 'Catatan Pengeluaran',
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontWeight: FontWeight.w400, color: colors.onSurface, fontSize: 19, letterSpacing: -0.35),
+                style: TextStyle(
+                  fontWeight: FontWeight.w400,
+                  color: colors.onSurface,
+                  fontSize: 19,
+                  letterSpacing: -0.35,
+                ),
               ),
             ),
           ],
         ),
         actions: [
-          IconButton(tooltip: 'Kalkulator', onPressed: _openCalculator, icon: const Icon(Icons.calculate_outlined)),
+          IconButton(
+            tooltip: 'Pengingat jadwal',
+            onPressed: _openReminders,
+            icon: const Icon(Icons.notifications_none_rounded),
+          ),
+          IconButton(
+            tooltip: 'Kalkulator',
+            onPressed: _openCalculator,
+            icon: const Icon(Icons.calculate_outlined),
+          ),
           PopupMenuButton<String>(
             tooltip: 'Data dan laporan',
             onSelected: (value) {
@@ -486,13 +699,45 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
               if (value == 'csv') _shareSpreadsheet();
             },
             itemBuilder: (_) => const [
-              PopupMenuItem(value: 'backup', child: ListTile(leading: Icon(Icons.phone_android_rounded), title: Text('Backup ke perangkat'), contentPadding: EdgeInsets.zero)),
-              PopupMenuItem(value: 'drive', child: ListTile(leading: Icon(Icons.drive_file_move_outline), title: Text('Backup ke Google Drive'), contentPadding: EdgeInsets.zero)),
-              PopupMenuItem(value: 'restore', child: ListTile(leading: Icon(Icons.restore_rounded), title: Text('Restore backup'), contentPadding: EdgeInsets.zero)),
-              PopupMenuItem(value: 'csv', child: ListTile(leading: Icon(Icons.table_view_rounded), title: Text('Share spreadsheet Excel'), contentPadding: EdgeInsets.zero)),
+              PopupMenuItem(
+                value: 'backup',
+                child: ListTile(
+                  leading: Icon(Icons.phone_android_rounded),
+                  title: Text('Backup ke perangkat'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              PopupMenuItem(
+                value: 'drive',
+                child: ListTile(
+                  leading: Icon(Icons.drive_file_move_outline),
+                  title: Text('Backup ke Google Drive'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              PopupMenuItem(
+                value: 'restore',
+                child: ListTile(
+                  leading: Icon(Icons.restore_rounded),
+                  title: Text('Restore backup'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
+              PopupMenuItem(
+                value: 'csv',
+                child: ListTile(
+                  leading: Icon(Icons.table_view_rounded),
+                  title: Text('Share spreadsheet Excel'),
+                  contentPadding: EdgeInsets.zero,
+                ),
+              ),
             ],
           ),
-          IconButton(tooltip: 'Tema', onPressed: _openSettings, icon: const Icon(Icons.tune_rounded)),
+          IconButton(
+            tooltip: 'Tema',
+            onPressed: _openSettings,
+            icon: const Icon(Icons.tune_rounded),
+          ),
           const SizedBox(width: 10),
         ],
       ),
@@ -505,7 +750,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                 transitionBuilder: (child, animation) => FadeTransition(
                   opacity: animation,
                   child: SlideTransition(
-                    position: Tween<Offset>(begin: const Offset(0.03, 0), end: Offset.zero).animate(animation),
+                    position: Tween<Offset>(
+                      begin: const Offset(0.03, 0),
+                      end: Offset.zero,
+                    ).animate(animation),
                     child: child,
                   ),
                 ),
@@ -514,11 +762,24 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tab.index,
-        onDestinationSelected: (index) => setState(() => _tab = FinanceTab.values[index]),
+        onDestinationSelected: (index) =>
+            setState(() => _tab = FinanceTab.values[index]),
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.grid_view_outlined), selectedIcon: Icon(Icons.grid_view_rounded), label: 'Ringkasan'),
-          NavigationDestination(icon: Icon(Icons.receipt_long_outlined), selectedIcon: Icon(Icons.receipt_long_rounded), label: 'Pengeluaran'),
-          NavigationDestination(icon: Icon(Icons.handshake_outlined), selectedIcon: Icon(Icons.handshake_rounded), label: 'Hutang'),
+          NavigationDestination(
+            icon: Icon(Icons.grid_view_outlined),
+            selectedIcon: Icon(Icons.grid_view_rounded),
+            label: 'Ringkasan',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.receipt_long_outlined),
+            selectedIcon: Icon(Icons.receipt_long_rounded),
+            label: 'Pengeluaran',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.handshake_outlined),
+            selectedIcon: Icon(Icons.handshake_rounded),
+            label: 'Hutang',
+          ),
         ],
       ),
       floatingActionButton: _buildFab(colors),
@@ -533,7 +794,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       backgroundColor: isDebt ? _mint : colors.primary,
       foregroundColor: Colors.white,
       icon: Icon(isDebt ? Icons.add_card_rounded : Icons.add_rounded),
-      label: Text(isDebt ? 'Tambah hutang' : 'Catat pengeluaran', style: const TextStyle(fontWeight: FontWeight.w700)),
+      label: Text(
+        isDebt ? 'Tambah hutang' : 'Catat pengeluaran',
+        style: const TextStyle(fontWeight: FontWeight.w700),
+      ),
     );
   }
 
@@ -557,7 +821,13 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       child: ListView(
         padding: const EdgeInsets.fromLTRB(20, 4, 20, 108),
         children: [
-          Text('Halo, yuk lebih sadar finansial.', style: TextStyle(color: colors.onSurface.withValues(alpha: 0.66), fontSize: 14)),
+          Text(
+            'Halo, yuk lebih sadar finansial.',
+            style: TextStyle(
+              color: colors.onSurface.withValues(alpha: 0.66),
+              fontSize: 14,
+            ),
+          ),
           const SizedBox(height: 18),
           _buildPocketMoneyCard(colors),
           const SizedBox(height: 14),
@@ -565,27 +835,55 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           const SizedBox(height: 18),
           Row(
             children: [
-              Expanded(child: _MetricCard(label: 'Hutang kita', value: _formatCurrency(_payable), icon: Icons.arrow_upward_rounded, color: _coral)),
+              Expanded(
+                child: _MetricCard(
+                  label: 'Hutang kita',
+                  value: _formatCurrency(_payable),
+                  icon: Icons.arrow_upward_rounded,
+                  color: _coral,
+                ),
+              ),
               const SizedBox(width: 12),
-              Expanded(child: _MetricCard(label: 'Piutang kita', value: _formatCurrency(_receivable), icon: Icons.arrow_downward_rounded, color: _mint)),
+              Expanded(
+                child: _MetricCard(
+                  label: 'Piutang kita',
+                  value: _formatCurrency(_receivable),
+                  icon: Icons.arrow_downward_rounded,
+                  color: _mint,
+                ),
+              ),
             ],
           ),
           const SizedBox(height: 25),
-          _SectionHeader(title: 'Pengeluaran terbaru', actionLabel: 'Lihat semua', onAction: () => setState(() => _tab = FinanceTab.expenses)),
+          _SectionHeader(
+            title: 'Pengeluaran terbaru',
+            actionLabel: 'Lihat semua',
+            onAction: () => setState(() => _tab = FinanceTab.expenses),
+          ),
           const SizedBox(height: 12),
           if (recent.isEmpty)
-            _buildEmptyCard('Belum ada pengeluaran', 'Catat transaksi pertamamu agar ringkasan mulai terisi.', Icons.receipt_long_outlined)
+            _buildEmptyCard(
+              'Belum ada pengeluaran',
+              'Catat transaksi pertamamu agar ringkasan mulai terisi.',
+              Icons.receipt_long_outlined,
+            )
           else
-            ...recent.asMap().entries.map((item) => Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _ExpenseTile(
-                    entry: item.value,
-                    onTap: () => _showExpenseForm(entry: item.value),
-                    onDelete: () => _deleteExpense(item.value),
-                  ),
-                )),
+            ...recent.asMap().entries.map(
+              (item) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _ExpenseTile(
+                  entry: item.value,
+                  onTap: () => _showExpenseForm(entry: item.value),
+                  onDelete: () => _deleteExpense(item.value),
+                ),
+              ),
+            ),
           const SizedBox(height: 10),
-          _SectionHeader(title: 'Hutang & piutang', actionLabel: 'Kelola', onAction: () => setState(() => _tab = FinanceTab.debts)),
+          _SectionHeader(
+            title: 'Hutang & piutang',
+            actionLabel: 'Kelola',
+            onAction: () => setState(() => _tab = FinanceTab.debts),
+          ),
           const SizedBox(height: 12),
           _buildDebtSummary(colors),
         ],
@@ -602,30 +900,97 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       borderRadius: BorderRadius.circular(12),
       child: Container(
         padding: const EdgeInsets.fromLTRB(17, 15, 13, 15),
-        decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(12), border: Border.all(color: colors.outline.withValues(alpha: 0.78))),
-        child: Row(children: [
-          Container(width: 38, height: 38, decoration: BoxDecoration(color: colors.primary.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(8)), child: Icon(Icons.account_balance_wallet_outlined, color: colors.primary, size: 20)),
-          const SizedBox(width: 12),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Uang Saku', style: TextStyle(color: colors.onSurface.withValues(alpha: 0.62), fontSize: 12, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 3),
-            Text(hasAllowance ? _formatCurrency(_pocketMoney) : 'Belum diatur', style: TextStyle(color: colors.onSurface, fontSize: 18, fontWeight: FontWeight.w700, letterSpacing: -0.2)),
-            if (hasAllowance) Text(isOver ? 'Melebihi ${_formatCurrency(remaining.abs())}' : 'Sisa ${_formatCurrency(remaining)}', style: TextStyle(color: isOver ? colors.error : _mint, fontSize: 11, fontWeight: FontWeight.w600)),
-          ])),
-          IconButton(tooltip: 'Edit Uang Saku', onPressed: _editPocketMoney, icon: Icon(Icons.edit_outlined, color: colors.onSurface.withValues(alpha: 0.55), size: 20)),
-        ]),
+        decoration: BoxDecoration(
+          color: colors.surface,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: colors.outline.withValues(alpha: 0.78)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: colors.primary.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(
+                Icons.account_balance_wallet_outlined,
+                color: colors.primary,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Uang Saku',
+                    style: TextStyle(
+                      color: colors.onSurface.withValues(alpha: 0.62),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    hasAllowance
+                        ? _formatCurrency(_pocketMoney)
+                        : 'Belum diatur',
+                    style: TextStyle(
+                      color: colors.onSurface,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                  if (hasAllowance)
+                    Text(
+                      isOver
+                          ? 'Melebihi ${_formatCurrency(remaining.abs())}'
+                          : 'Sisa ${_formatCurrency(remaining)}',
+                      style: TextStyle(
+                        color: isOver ? colors.error : _mint,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            IconButton(
+              tooltip: 'Edit Uang Saku',
+              onPressed: _editPocketMoney,
+              icon: Icon(
+                Icons.edit_outlined,
+                color: colors.onSurface.withValues(alpha: 0.55),
+                size: 20,
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
   Widget _buildBalanceCard(ColorScheme colors) {
     final today = DateTime.now();
-    final thisMonth = _expenses.where((entry) => entry.date.year == today.year && entry.date.month == today.month).fold(0.0, (sum, entry) => sum + entry.amount);
+    final thisMonth = _expenses
+        .where(
+          (entry) =>
+              entry.date.year == today.year && entry.date.month == today.month,
+        )
+        .fold(0.0, (sum, entry) => sum + entry.amount);
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0.92, end: 1),
       duration: const Duration(milliseconds: 500),
       curve: Curves.easeOutCubic,
-      builder: (context, scale, child) => Transform.scale(scale: scale, alignment: Alignment.center, child: child),
+      builder: (context, scale, child) => Transform.scale(
+        scale: scale,
+        alignment: Alignment.center,
+        child: child,
+      ),
       child: Container(
         padding: const EdgeInsets.all(22),
         decoration: BoxDecoration(
@@ -638,25 +1003,74 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           children: [
             Row(
               children: [
-                const Expanded(child: Text('Total pengeluaran bulan ini', style: TextStyle(color: Colors.white70, fontSize: 13, fontWeight: FontWeight.w600))),
+                const Expanded(
+                  child: Text(
+                    'Total pengeluaran bulan ini',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-                  decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.14), borderRadius: BorderRadius.circular(99)),
-                  child: Text('${_expenses.length} transaksi', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w700)),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 9,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.14),
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                  child: Text(
+                    '${_expenses.length} transaksi',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
               ],
             ),
             const SizedBox(height: 9),
-            Text(_formatCurrency(thisMonth), style: const TextStyle(color: Colors.white, fontSize: 30, fontWeight: FontWeight.w800, letterSpacing: -0.5)),
+            Text(
+              _formatCurrency(thisMonth),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 30,
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.5,
+              ),
+            ),
             const SizedBox(height: 18),
             Container(height: 1, color: Colors.white.withValues(alpha: 0.18)),
             const SizedBox(height: 13),
             Row(
               children: [
-                const Icon(Icons.insights_rounded, color: Colors.white70, size: 18),
+                const Icon(
+                  Icons.insights_rounded,
+                  color: Colors.white70,
+                  size: 18,
+                ),
                 const SizedBox(width: 7),
-                Expanded(child: Text('Catat kecil, dampaknya besar.', style: TextStyle(color: Colors.white.withValues(alpha: 0.82), fontSize: 12))),
-                Text(_formatCurrency(_totalExpense), style: const TextStyle(color: Colors.white, fontSize: 12, fontWeight: FontWeight.w700)),
+                Expanded(
+                  child: Text(
+                    'Catat kecil, dampaknya besar.',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.82),
+                      fontSize: 12,
+                    ),
+                  ),
+                ),
+                Text(
+                  _formatCurrency(_totalExpense),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ],
             ),
           ],
@@ -670,15 +1084,28 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       key: key,
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 108),
       children: [
-        _PageHeading(title: 'Riwayat pengeluaran', subtitle: '${_expenses.length} transaksi tercatat'),
+        _PageHeading(
+          title: 'Riwayat pengeluaran',
+          subtitle: '${_expenses.length} transaksi tercatat',
+        ),
         const SizedBox(height: 18),
         if (_expenses.isEmpty)
-          _buildEmptyCard('Belum ada transaksi', 'Tekan tombol di bawah untuk mencatat pengeluaran.', Icons.receipt_long_outlined)
+          _buildEmptyCard(
+            'Belum ada transaksi',
+            'Tekan tombol di bawah untuk mencatat pengeluaran.',
+            Icons.receipt_long_outlined,
+          )
         else
-          ..._expenses.map((entry) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: _ExpenseTile(entry: entry, onTap: () => _showExpenseForm(entry: entry), onDelete: () => _deleteExpense(entry)),
-              )),
+          ..._expenses.map(
+            (entry) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _ExpenseTile(
+                entry: entry,
+                onTap: () => _showExpenseForm(entry: entry),
+                onDelete: () => _deleteExpense(entry),
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -688,16 +1115,23 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     final filtered = query.isEmpty
         ? _debts
         : _debts.where((item) {
-            final haystack = '${item.person} ${item.contactPhone ?? ''} ${item.note}'.toLowerCase();
+            final haystack =
+                '${item.person} ${item.contactPhone ?? ''} ${item.note}'
+                    .toLowerCase();
             return haystack.contains(query);
           }).toList();
-    final suggestions = query.isEmpty ? <DebtEntry>[] : filtered.take(6).toList();
+    final suggestions = query.isEmpty
+        ? <DebtEntry>[]
+        : filtered.take(6).toList();
     final colors = Theme.of(context).colorScheme;
     return ListView(
       key: key,
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 108),
       children: [
-        _PageHeading(title: 'Hutang & piutang', subtitle: 'Jaga semua janji tetap tercatat'),
+        _PageHeading(
+          title: 'Hutang & piutang',
+          subtitle: 'Jaga semua janji tetap tercatat',
+        ),
         const SizedBox(height: 18),
         _buildDebtSummary(colors),
         const SizedBox(height: 18),
@@ -711,7 +1145,14 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
             prefixIcon: const Icon(Icons.search_rounded),
             suffixIcon: _debtQuery.isEmpty
                 ? null
-                : IconButton(tooltip: 'Bersihkan pencarian', onPressed: () { _debtSearchController.clear(); setState(() => _debtQuery = ''); }, icon: const Icon(Icons.close_rounded)),
+                : IconButton(
+                    tooltip: 'Bersihkan pencarian',
+                    onPressed: () {
+                      _debtSearchController.clear();
+                      setState(() => _debtQuery = '');
+                    },
+                    icon: const Icon(Icons.close_rounded),
+                  ),
           ),
         ),
         AnimatedSwitcher(
@@ -723,59 +1164,221 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
               : Container(
                   key: const ValueKey('suggestions'),
                   margin: const EdgeInsets.only(top: 8),
-                  decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(15), border: Border.all(color: colors.outline.withValues(alpha: 0.6))),
-                  child: Column(children: suggestions.map((entry) => ListTile(
-                    dense: true,
-                    leading: CircleAvatar(radius: 16, backgroundColor: colors.primary.withValues(alpha: 0.1), child: Icon(Icons.person_outline_rounded, size: 18, color: colors.primary)),
-                    title: Text(entry.person, style: const TextStyle(fontWeight: FontWeight.w700)),
-                    subtitle: Text(entry.contactPhone?.isNotEmpty == true ? entry.contactPhone! : 'Nomor tidak tersimpan'),
-                    trailing: Text(_formatCurrency(entry.amount), style: TextStyle(color: entry.kind == DebtKind.payable ? _coral : _mint, fontSize: 11, fontWeight: FontWeight.w800)),
-                    onTap: () { _debtSearchController.text = entry.person; setState(() => _debtQuery = entry.person); },
-                  )).toList()),
+                  decoration: BoxDecoration(
+                    color: colors.surface,
+                    borderRadius: BorderRadius.circular(15),
+                    border: Border.all(
+                      color: colors.outline.withValues(alpha: 0.6),
+                    ),
+                  ),
+                  child: Column(
+                    children: suggestions
+                        .map(
+                          (entry) => ListTile(
+                            dense: true,
+                            leading: CircleAvatar(
+                              radius: 16,
+                              backgroundColor: colors.primary.withValues(
+                                alpha: 0.1,
+                              ),
+                              child: Icon(
+                                Icons.person_outline_rounded,
+                                size: 18,
+                                color: colors.primary,
+                              ),
+                            ),
+                            title: Text(
+                              entry.person,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            subtitle: Text(
+                              entry.contactPhone?.isNotEmpty == true
+                                  ? entry.contactPhone!
+                                  : 'Nomor tidak tersimpan',
+                            ),
+                            trailing: Text(
+                              _formatCurrency(entry.amount),
+                              style: TextStyle(
+                                color: entry.kind == DebtKind.payable
+                                    ? _coral
+                                    : _mint,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            onTap: () {
+                              _debtSearchController.text = entry.person;
+                              setState(() => _debtQuery = entry.person);
+                            },
+                          ),
+                        )
+                        .toList(),
+                  ),
                 ),
         ),
         const SizedBox(height: 18),
         if (_debts.isEmpty)
-          _buildEmptyCard('Belum ada catatan hutang', 'Tambahkan siapa, jumlahnya, dan kapan harus selesai.', Icons.handshake_outlined)
+          _buildEmptyCard(
+            'Belum ada catatan hutang',
+            'Tambahkan siapa, jumlahnya, dan kapan harus selesai.',
+            Icons.handshake_outlined,
+          )
         else if (filtered.isEmpty)
-          _buildEmptyCard('Tidak ditemukan', 'Coba cari dengan nama, nomor telepon, atau kata di catatan.', Icons.search_off_rounded)
+          _buildEmptyCard(
+            'Tidak ditemukan',
+            'Coba cari dengan nama, nomor telepon, atau kata di catatan.',
+            Icons.search_off_rounded,
+          )
         else ...[
-          _buildDebtSection(title: 'Dipinjam Orang', subtitle: 'Uang yang perlu kamu terima', entries: filtered.where((item) => item.kind == DebtKind.receivable).toList(), color: _mint),
+          _buildDebtSection(
+            title: 'Dipinjam Orang',
+            subtitle: 'Uang yang perlu kamu terima',
+            entries: filtered
+                .where((item) => item.kind == DebtKind.receivable)
+                .toList(),
+            color: _mint,
+          ),
           const SizedBox(height: 22),
-          _buildDebtSection(title: 'Saya Berhutang', subtitle: 'Uang yang perlu kamu bayarkan', entries: filtered.where((item) => item.kind == DebtKind.payable).toList(), color: _coral),
+          _buildDebtSection(
+            title: 'Saya Berhutang',
+            subtitle: 'Uang yang perlu kamu bayarkan',
+            entries: filtered
+                .where((item) => item.kind == DebtKind.payable)
+                .toList(),
+            color: _coral,
+          ),
         ],
       ],
     );
   }
 
-  Widget _buildDebtSection({required String title, required String subtitle, required List<DebtEntry> entries, required Color color}) {
+  Widget _buildDebtSection({
+    required String title,
+    required String subtitle,
+    required List<DebtEntry> entries,
+    required Color color,
+  }) {
     final activeCount = entries.where((item) => !item.isSettled).length;
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, style: TextStyle(color: Theme.of(context).colorScheme.onSurface, fontSize: 18, fontWeight: FontWeight.w700, letterSpacing: -0.15)),
-          const SizedBox(height: 3),
-          Text(subtitle, style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.58), fontSize: 12)),
-        ])),
-        Container(padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5), decoration: BoxDecoration(color: color.withValues(alpha: 0.1), borderRadius: BorderRadius.circular(999)), child: Text('$activeCount aktif', style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w700))),
-      ]),
-      const SizedBox(height: 10),
-      if (entries.isEmpty)
-        Container(width: double.infinity, padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15), decoration: BoxDecoration(color: Theme.of(context).colorScheme.surface, borderRadius: BorderRadius.circular(10), border: Border.all(color: Theme.of(context).colorScheme.outline.withValues(alpha: 0.65))), child: Text('Belum ada catatan di bagian ini.', style: TextStyle(color: Theme.of(context).colorScheme.onSurface.withValues(alpha: 0.58), fontSize: 13)))
-      else
-        ...entries.map((entry) => Padding(padding: const EdgeInsets.only(bottom: 10), child: _DebtTile(entry: entry, onToggle: () => _toggleDebt(entry), onTap: () => _showDebtForm(entry: entry), onDelete: () => _deleteDebt(entry), onCommunicate: () => _openCommunication(entry)))),
-    ]);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: -0.15,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurface
+                          .withValues(alpha: 0.58),
+                      fontSize: 12,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.1),
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '$activeCount aktif',
+                style: TextStyle(
+                  color: color,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+        if (entries.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 15),
+            decoration: BoxDecoration(
+              color: Theme.of(context).colorScheme.surface,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: Theme.of(context).colorScheme.outline
+                    .withValues(alpha: 0.65),
+              ),
+            ),
+            child: Text(
+              'Belum ada catatan di bagian ini.',
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.onSurface
+                    .withValues(alpha: 0.58),
+                fontSize: 13,
+              ),
+            ),
+          )
+        else
+          ...entries.map(
+            (entry) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _DebtTile(
+                entry: entry,
+                onToggle: () => _toggleDebt(entry),
+                onTap: () => _showDebtForm(entry: entry),
+                onDelete: () => _deleteDebt(entry),
+                onCommunicate: () => _openCommunication(entry),
+              ),
+            ),
+          ),
+      ],
+    );
   }
 
   Widget _buildDebtSummary(ColorScheme colors) {
     return Container(
       padding: const EdgeInsets.all(17),
-      decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(12), border: Border.all(color: colors.outline.withValues(alpha: 0.65))),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colors.outline.withValues(alpha: 0.65)),
+      ),
       child: Row(
         children: [
-          Expanded(child: _DebtAmount(label: 'Hutang', amount: _payable, color: _coral, icon: Icons.arrow_upward_rounded)),
-          Container(width: 1, height: 42, color: colors.outline.withValues(alpha: 0.7)),
-          Expanded(child: _DebtAmount(label: 'Piutang', amount: _receivable, color: _mint, icon: Icons.arrow_downward_rounded)),
+          Expanded(
+            child: _DebtAmount(
+              label: 'Hutang',
+              amount: _payable,
+              color: _coral,
+              icon: Icons.arrow_upward_rounded,
+            ),
+          ),
+          Container(
+            width: 1,
+            height: 42,
+            color: colors.outline.withValues(alpha: 0.7),
+          ),
+          Expanded(
+            child: _DebtAmount(
+              label: 'Piutang',
+              amount: _receivable,
+              color: _mint,
+              icon: Icons.arrow_downward_rounded,
+            ),
+          ),
         ],
       ),
     );
@@ -785,14 +1388,34 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     final colors = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 28),
-      decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(12), border: Border.all(color: colors.outline.withValues(alpha: 0.65))),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colors.outline.withValues(alpha: 0.65)),
+      ),
       child: Column(
         children: [
           Icon(icon, size: 38, color: colors.primary.withValues(alpha: 0.7)),
           const SizedBox(height: 12),
-          Text(title, textAlign: TextAlign.center, style: TextStyle(color: colors.onSurface, fontWeight: FontWeight.w800, fontSize: 16)),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: colors.onSurface,
+              fontWeight: FontWeight.w800,
+              fontSize: 16,
+            ),
+          ),
           const SizedBox(height: 6),
-          Text(subtitle, textAlign: TextAlign.center, style: TextStyle(color: colors.onSurface.withValues(alpha: 0.6), fontSize: 13, height: 1.4)),
+          Text(
+            subtitle,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: colors.onSurface.withValues(alpha: 0.6),
+              fontSize: 13,
+              height: 1.4,
+            ),
+          ),
         ],
       ),
     );
@@ -807,11 +1430,28 @@ class _PageHeading extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(title, style: TextStyle(color: colors.onSurface, fontSize: 27, fontWeight: FontWeight.w800, letterSpacing: -0.6)),
-      const SizedBox(height: 4),
-      Text(subtitle, style: TextStyle(color: colors.onSurface.withValues(alpha: 0.62), fontSize: 14)),
-    ]);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          style: TextStyle(
+            color: colors.onSurface,
+            fontSize: 27,
+            fontWeight: FontWeight.w800,
+            letterSpacing: -0.6,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          subtitle,
+          style: TextStyle(
+            color: colors.onSurface.withValues(alpha: 0.62),
+            fontSize: 14,
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -824,16 +1464,42 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return Row(children: [
-      Expanded(child: Text(title, style: TextStyle(color: colors.onSurface, fontSize: 17, fontWeight: FontWeight.w800))),
-      if (actionLabel != null)
-        TextButton(onPressed: onAction, child: Text(actionLabel!, style: TextStyle(color: colors.primary, fontWeight: FontWeight.w700, fontSize: 12))),
-    ]);
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            title,
+            style: TextStyle(
+              color: colors.onSurface,
+              fontSize: 17,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+        if (actionLabel != null)
+          TextButton(
+            onPressed: onAction,
+            child: Text(
+              actionLabel!,
+              style: TextStyle(
+                color: colors.primary,
+                fontWeight: FontWeight.w700,
+                fontSize: 12,
+              ),
+            ),
+          ),
+      ],
+    );
   }
 }
 
 class _MetricCard extends StatelessWidget {
-  const _MetricCard({required this.label, required this.value, required this.icon, required this.color});
+  const _MetricCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.color,
+  });
   final String label;
   final String value;
   final IconData icon;
@@ -844,20 +1510,56 @@ class _MetricCard extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     return Container(
       padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(color: colors.surface, borderRadius: BorderRadius.circular(12), border: Border.all(color: colors.outline.withValues(alpha: 0.65))),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Container(width: 32, height: 32, decoration: BoxDecoration(color: color.withValues(alpha: 0.13), shape: BoxShape.circle), child: Icon(icon, color: color, size: 18)),
-        const SizedBox(height: 13),
-        Text(label, style: TextStyle(color: colors.onSurface.withValues(alpha: 0.62), fontSize: 12, fontWeight: FontWeight.w600)),
-        const SizedBox(height: 4),
-        Text(value, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: colors.onSurface, fontWeight: FontWeight.w800, fontSize: 15)),
-      ]),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colors.outline.withValues(alpha: 0.65)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 32,
+            height: 32,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.13),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: color, size: 18),
+          ),
+          const SizedBox(height: 13),
+          Text(
+            label,
+            style: TextStyle(
+              color: colors.onSurface.withValues(alpha: 0.62),
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: colors.onSurface,
+              fontWeight: FontWeight.w800,
+              fontSize: 15,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
 class _DebtAmount extends StatelessWidget {
-  const _DebtAmount({required this.label, required this.amount, required this.color, required this.icon});
+  const _DebtAmount({
+    required this.label,
+    required this.amount,
+    required this.color,
+    required this.icon,
+  });
   final String label;
   final double amount;
   final Color color;
@@ -868,11 +1570,44 @@ class _DebtAmount extends StatelessWidget {
     final colors = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Row(children: [
-        Container(width: 31, height: 31, decoration: BoxDecoration(color: color.withValues(alpha: 0.13), shape: BoxShape.circle), child: Icon(icon, size: 16, color: color)),
-        const SizedBox(width: 9),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(label, style: TextStyle(color: colors.onSurface.withValues(alpha: 0.6), fontSize: 12)), const SizedBox(height: 3), Text(_formatCurrency(amount), overflow: TextOverflow.ellipsis, style: TextStyle(color: colors.onSurface, fontSize: 14, fontWeight: FontWeight.w800))])),
-      ]),
+      child: Row(
+        children: [
+          Container(
+            width: 31,
+            height: 31,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.13),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 16, color: color),
+          ),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  label,
+                  style: TextStyle(
+                    color: colors.onSurface.withValues(alpha: 0.6),
+                    fontSize: 12,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  _formatCurrency(amount),
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: colors.onSurface,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -887,14 +1622,24 @@ class _AnimatedCardEntry extends StatelessWidget {
       tween: Tween(begin: 0, end: 1),
       duration: const Duration(milliseconds: 420),
       curve: Curves.easeOutCubic,
-      builder: (context, value, child) => Opacity(opacity: value, child: Transform.translate(offset: Offset(0, (1 - value) * 10), child: child)),
+      builder: (context, value, child) => Opacity(
+        opacity: value,
+        child: Transform.translate(
+          offset: Offset(0, (1 - value) * 10),
+          child: child,
+        ),
+      ),
       child: child,
     );
   }
 }
 
 class _ExpenseTile extends StatelessWidget {
-  const _ExpenseTile({required this.entry, required this.onTap, required this.onDelete});
+  const _ExpenseTile({
+    required this.entry,
+    required this.onTap,
+    required this.onDelete,
+  });
   final ExpenseEntry entry;
   final VoidCallback onTap;
   final VoidCallback onDelete;
@@ -902,36 +1647,98 @@ class _ExpenseTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return _AnimatedCardEntry(child: Dismissible(
-      key: ValueKey(entry.id),
-      direction: DismissDirection.endToStart,
-      confirmDismiss: (_) => _confirmDeleteEntry(context, entry),
-      onDismissed: (_) => onDelete(),
-      background: Container(alignment: Alignment.centerRight, padding: const EdgeInsets.only(right: 22), decoration: BoxDecoration(color: colors.error.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)), child: Icon(Icons.delete_outline_rounded, color: colors.error)),
-      child: Material(
-        color: colors.surface,
-        borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          onTap: onTap,
+    return _AnimatedCardEntry(
+      child: Dismissible(
+        key: ValueKey(entry.id),
+        direction: DismissDirection.endToStart,
+        confirmDismiss: (_) => _confirmDeleteEntry(context, entry),
+        onDismissed: (_) => onDelete(),
+        background: Container(
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 22),
+          decoration: BoxDecoration(
+            color: colors.error.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(Icons.delete_outline_rounded, color: colors.error),
+        ),
+        child: Material(
+          color: colors.surface,
           borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding: const EdgeInsets.all(13),
-            child: Row(children: [
-              _CategoryIcon(category: entry.category),
-              const SizedBox(width: 12),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(entry.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: colors.onSurface, fontSize: 14, fontWeight: FontWeight.w800)), const SizedBox(height: 5), Text('${_categoryLabel(entry.category)} • ${_formatDate(entry.date)}', style: TextStyle(color: colors.onSurface.withValues(alpha: 0.58), fontSize: 11))])),
-              const SizedBox(width: 8),
-              Column(crossAxisAlignment: CrossAxisAlignment.end, children: [Text(_formatCurrency(entry.amount), style: TextStyle(color: colors.onSurface, fontSize: 13, fontWeight: FontWeight.w800)), if (entry.imagePath != null) ...[const SizedBox(height: 5), Icon(Icons.image_outlined, size: 14, color: colors.primary)]])
-            ]),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.all(13),
+              child: Row(
+                children: [
+                  _CategoryIcon(category: entry.category),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          entry.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: colors.onSurface,
+                            fontSize: 14,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                        const SizedBox(height: 5),
+                        Text(
+                          '${_categoryLabel(entry.category)} • ${_formatDate(entry.date)}',
+                          style: TextStyle(
+                            color: colors.onSurface.withValues(alpha: 0.58),
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        _formatCurrency(entry.amount),
+                        style: TextStyle(
+                          color: colors.onSurface,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      if (entry.imagePath != null) ...[
+                        const SizedBox(height: 5),
+                        Icon(
+                          Icons.image_outlined,
+                          size: 14,
+                          color: colors.primary,
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
-    ));
+    );
   }
 }
 
 class _DebtTile extends StatelessWidget {
-  const _DebtTile({required this.entry, required this.onToggle, required this.onTap, required this.onDelete, required this.onCommunicate});
+  const _DebtTile({
+    required this.entry,
+    required this.onToggle,
+    required this.onTap,
+    required this.onDelete,
+    required this.onCommunicate,
+  });
   final DebtEntry entry;
   final VoidCallback onToggle;
   final VoidCallback onTap;
@@ -942,46 +1749,124 @@ class _DebtTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final color = entry.kind == DebtKind.payable ? _coral : _mint;
-    return _AnimatedCardEntry(child: Dismissible(
-      key: ValueKey(entry.id),
-      direction: DismissDirection.endToStart,
-      confirmDismiss: (_) => _confirmDeleteEntry(context, entry),
-      onDismissed: (_) => onDelete(),
-      background: Container(alignment: Alignment.centerRight, padding: const EdgeInsets.only(right: 22), decoration: BoxDecoration(color: colors.error.withValues(alpha: 0.12), borderRadius: BorderRadius.circular(12)), child: Icon(Icons.delete_outline_rounded, color: colors.error)),
-      child: Material(
-        color: colors.surface,
-        borderRadius: BorderRadius.circular(12),
-        child: InkWell(
-          onTap: onTap,
+    return _AnimatedCardEntry(
+      child: Dismissible(
+        key: ValueKey(entry.id),
+        direction: DismissDirection.endToStart,
+        confirmDismiss: (_) => _confirmDeleteEntry(context, entry),
+        onDismissed: (_) => onDelete(),
+        background: Container(
+          alignment: Alignment.centerRight,
+          padding: const EdgeInsets.only(right: 22),
+          decoration: BoxDecoration(
+            color: colors.error.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(12),
+          ),
+          child: Icon(Icons.delete_outline_rounded, color: colors.error),
+        ),
+        child: Material(
+          color: colors.surface,
           borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(8, 12, 12, 12),
-            child: Row(children: [
-              Checkbox(value: entry.isSettled, onChanged: (_) => onToggle(), activeColor: _mint, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6))),
-              Container(width: 36, height: 36, decoration: BoxDecoration(color: color.withValues(alpha: 0.13), shape: BoxShape.circle), child: Icon(entry.kind == DebtKind.payable ? Icons.arrow_upward_rounded : Icons.arrow_downward_rounded, color: color, size: 19)),
-              const SizedBox(width: 11),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(entry.person, style: TextStyle(color: entry.isSettled ? colors.onSurface.withValues(alpha: 0.45) : colors.onSurface, fontWeight: FontWeight.w800, decoration: entry.isSettled ? TextDecoration.lineThrough : null)),
-                if (entry.contactPhone?.isNotEmpty == true) ...[
-                  const SizedBox(height: 2),
-                  Text(entry.contactPhone!, style: TextStyle(color: colors.onSurface.withValues(alpha: 0.5), fontSize: 10.5)),
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(12),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(8, 12, 12, 12),
+              child: Row(
+                children: [
+                  Checkbox(
+                    value: entry.isSettled,
+                    onChanged: (_) => onToggle(),
+                    activeColor: _mint,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                  Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                      color: color.withValues(alpha: 0.13),
+                      shape: BoxShape.circle,
+                    ),
+                    child: Icon(
+                      entry.kind == DebtKind.payable
+                          ? Icons.arrow_upward_rounded
+                          : Icons.arrow_downward_rounded,
+                      color: color,
+                      size: 19,
+                    ),
+                  ),
+                  const SizedBox(width: 11),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          entry.person,
+                          style: TextStyle(
+                            color: entry.isSettled
+                                ? colors.onSurface.withValues(alpha: 0.45)
+                                : colors.onSurface,
+                            fontWeight: FontWeight.w800,
+                            decoration: entry.isSettled
+                                ? TextDecoration.lineThrough
+                                : null,
+                          ),
+                        ),
+                        if (entry.contactPhone?.isNotEmpty == true) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            entry.contactPhone!,
+                            style: TextStyle(
+                              color: colors.onSurface.withValues(alpha: 0.5),
+                              fontSize: 10.5,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 4),
+                        Text(
+                          '${entry.kind == DebtKind.payable ? 'Hutang' : 'Piutang'} • ${entry.dueDate == null ? 'Tanpa tenggat' : 'Jatuh tempo ${_formatDate(entry.dueDate!)}'}',
+                          style: TextStyle(
+                            color: colors.onSurface.withValues(alpha: 0.58),
+                            fontSize: 11,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  IconButton(
+                    tooltip: entry.contactPhone?.isNotEmpty == true
+                        ? 'Kirim pesan'
+                        : 'Pilih kontak terlebih dahulu',
+                    onPressed: onCommunicate,
+                    icon: Icon(
+                      Icons.chat_bubble_outline_rounded,
+                      size: 19,
+                      color: entry.contactPhone?.isNotEmpty == true
+                          ? colors.primary
+                          : colors.onSurface.withValues(alpha: 0.28),
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  Text(
+                    _formatCurrency(entry.amount),
+                    style: TextStyle(
+                      color: entry.isSettled
+                          ? colors.onSurface.withValues(alpha: 0.45)
+                          : color,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
                 ],
-                const SizedBox(height: 4),
-                Text('${entry.kind == DebtKind.payable ? 'Hutang' : 'Piutang'} • ${entry.dueDate == null ? 'Tanpa tenggat' : 'Jatuh tempo ${_formatDate(entry.dueDate!)}'}', style: TextStyle(color: colors.onSurface.withValues(alpha: 0.58), fontSize: 11)),
-              ])),
-              const SizedBox(width: 6),
-              IconButton(
-                tooltip: entry.contactPhone?.isNotEmpty == true ? 'Kirim pesan' : 'Pilih kontak terlebih dahulu',
-                onPressed: onCommunicate,
-                icon: Icon(Icons.chat_bubble_outline_rounded, size: 19, color: entry.contactPhone?.isNotEmpty == true ? colors.primary : colors.onSurface.withValues(alpha: 0.28)),
               ),
-              const SizedBox(width: 2),
-              Text(_formatCurrency(entry.amount), style: TextStyle(color: entry.isSettled ? colors.onSurface.withValues(alpha: 0.45) : color, fontSize: 13, fontWeight: FontWeight.w800)),
-            ]),
+            ),
           ),
         ),
       ),
-    ));
+    );
   }
 }
 
@@ -993,7 +1878,15 @@ class _CategoryIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final color = _categoryColor(category, colors);
-    return Container(width: 43, height: 43, decoration: BoxDecoration(color: color.withValues(alpha: 0.13), borderRadius: BorderRadius.circular(14)), child: Icon(_categoryIcon(category), color: color, size: 21));
+    return Container(
+      width: 43,
+      height: 43,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.13),
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Icon(_categoryIcon(category), color: color, size: 21),
+    );
   }
 }
 
@@ -1019,7 +1912,9 @@ class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
   void initState() {
     super.initState();
     _title = TextEditingController(text: widget.entry?.title ?? '');
-    _amount = TextEditingController(text: widget.entry == null ? '' : widget.entry!.amount.toStringAsFixed(0));
+    _amount = TextEditingController(
+      text: widget.entry == null ? '' : widget.entry!.amount.toStringAsFixed(0),
+    );
     _note = TextEditingController(text: widget.entry?.note ?? '');
     _category = widget.entry?.category ?? ExpenseCategory.food;
     _date = widget.entry?.date ?? DateTime.now();
@@ -1037,12 +1932,19 @@ class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
   Future<void> _chooseImage() async {
     final source = await showModalBottomSheet<ImageSource>(
       context: context,
-      builder: (sheetContext) => _ImageSourceSheet(onSelected: (value) => Navigator.pop(sheetContext, value)),
+      builder: (sheetContext) => _ImageSourceSheet(
+        onSelected: (value) => Navigator.pop(sheetContext, value),
+      ),
     );
     if (source == null || !mounted) return;
-    final newPath = await _pickEditStoreImage(context, widget.imageService, source);
+    final newPath = await _pickEditStoreImage(
+      context,
+      widget.imageService,
+      source,
+    );
     if (newPath == null) return;
-    if (_imagePath != null && _imagePath != newPath) await widget.imageService.delete(_imagePath);
+    if (_imagePath != null && _imagePath != newPath)
+      await widget.imageService.delete(_imagePath);
     if (mounted) setState(() => _imagePath = newPath);
   }
 
@@ -1052,7 +1954,13 @@ class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
   }
 
   Future<void> _pickDate() async {
-    final selected = await showDatePicker(context: context, initialDate: _date, firstDate: DateTime(2020), lastDate: DateTime(2100), helpText: 'Pilih tanggal transaksi');
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: _date,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      helpText: 'Pilih tanggal transaksi',
+    );
     if (selected != null && mounted) setState(() => _date = selected);
   }
 
@@ -1060,11 +1968,27 @@ class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
     final title = _title.text.trim();
     final amount = _parseAmount(_amount.text);
     if (title.isEmpty || amount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Isi nama transaksi dan nominal yang valid.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Isi nama transaksi dan nominal yang valid.'),
+        ),
+      );
       return;
     }
     setState(() => _saving = true);
-    Navigator.pop(context, ExpenseEntry(id: widget.entry?.id ?? _newId(), title: title, amount: amount, category: _category, date: _date, note: _note.text.trim(), imagePath: _imagePath, createdAt: widget.entry?.createdAt ?? DateTime.now()));
+    Navigator.pop(
+      context,
+      ExpenseEntry(
+        id: widget.entry?.id ?? _newId(),
+        title: title,
+        amount: amount,
+        category: _category,
+        date: _date,
+        note: _note.text.trim(),
+        imagePath: _imagePath,
+        createdAt: widget.entry?.createdAt ?? DateTime.now(),
+      ),
+    );
   }
 
   @override
@@ -1072,25 +1996,123 @@ class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
     final colors = Theme.of(context).colorScheme;
     return _SheetShell(
       title: widget.entry == null ? 'Catat pengeluaran' : 'Edit pengeluaran',
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        TextField(controller: _title, textCapitalization: TextCapitalization.sentences, textInputAction: TextInputAction.next, decoration: const InputDecoration(            labelText: 'Untuk apa pengeluaran ini?', hintText: 'Contoh: Makan siang, ongkos, pulsa')),
-        const SizedBox(height: 13),
-        TextField(controller: _amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Nominal', prefixText: 'Rp  ', hintText: '0')),
-        const SizedBox(height: 13),
-        Row(children: [Expanded(child: DropdownButtonFormField<ExpenseCategory>(initialValue: _category, decoration: const InputDecoration(labelText: 'Kategori'), items: ExpenseCategory.values.map((value) => DropdownMenuItem(value: value, child: Text(_categoryLabel(value)))).toList(), onChanged: (value) { if (value != null) setState(() => _category = value); })), const SizedBox(width: 12), Expanded(child: InkWell(onTap: _pickDate, borderRadius: BorderRadius.circular(15), child: InputDecorator(decoration: const InputDecoration(labelText: 'Tanggal', suffixIcon: Icon(Icons.calendar_today_outlined)), child: Text(_formatDate(_date)))))]),
-        const SizedBox(height: 13),
-        TextField(controller: _note, textCapitalization: TextCapitalization.sentences, maxLines: 3, decoration: const InputDecoration(labelText: 'Catatan (opsional)', hintText: 'Tambahkan detail transaksi')),
-        const SizedBox(height: 15),
-        _PhotoAttachment(path: _imagePath, onAdd: _chooseImage, onRemove: _removeImage, colors: colors),
-        const SizedBox(height: 22),
-        SizedBox(width: double.infinity, height: 53, child: FilledButton.icon(onPressed: _saving ? null : _save, style: FilledButton.styleFrom(backgroundColor: colors.primary, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))), icon: _saving ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.check_rounded), label: Text(widget.entry == null ? 'Simpan pengeluaran' : 'Simpan perubahan', style: const TextStyle(fontWeight: FontWeight.w800)))),
-      ]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _title,
+            textCapitalization: TextCapitalization.sentences,
+            textInputAction: TextInputAction.next,
+            decoration: const InputDecoration(
+              labelText: 'Untuk apa pengeluaran ini?',
+              hintText: 'Contoh: Makan siang, ongkos, pulsa',
+            ),
+          ),
+          const SizedBox(height: 13),
+          TextField(
+            controller: _amount,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Nominal',
+              prefixText: 'Rp  ',
+              hintText: '0',
+            ),
+          ),
+          const SizedBox(height: 13),
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<ExpenseCategory>(
+                  initialValue: _category,
+                  decoration: const InputDecoration(labelText: 'Kategori'),
+                  items: ExpenseCategory.values
+                      .map(
+                        (value) => DropdownMenuItem(
+                          value: value,
+                          child: Text(_categoryLabel(value)),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) {
+                    if (value != null) setState(() => _category = value);
+                  },
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: InkWell(
+                  onTap: _pickDate,
+                  borderRadius: BorderRadius.circular(15),
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Tanggal',
+                      suffixIcon: Icon(Icons.calendar_today_outlined),
+                    ),
+                    child: Text(_formatDate(_date)),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 13),
+          TextField(
+            controller: _note,
+            textCapitalization: TextCapitalization.sentences,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Catatan (opsional)',
+              hintText: 'Tambahkan detail transaksi',
+            ),
+          ),
+          const SizedBox(height: 15),
+          _PhotoAttachment(
+            path: _imagePath,
+            onAdd: _chooseImage,
+            onRemove: _removeImage,
+            colors: colors,
+          ),
+          const SizedBox(height: 22),
+          SizedBox(
+            width: double.infinity,
+            height: 53,
+            child: FilledButton.icon(
+              onPressed: _saving ? null : _save,
+              style: FilledButton.styleFrom(
+                backgroundColor: colors.primary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(15),
+                ),
+              ),
+              icon: _saving
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.check_rounded),
+              label: Text(
+                widget.entry == null
+                    ? 'Simpan pengeluaran'
+                    : 'Simpan perubahan',
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
 class DebtFormSheet extends StatefulWidget {
-  const DebtFormSheet({super.key, this.entry, required this.imageService, required this.contactService});
+  const DebtFormSheet({
+    super.key,
+    this.entry,
+    required this.imageService,
+    required this.contactService,
+  });
   final DebtEntry? entry;
   final ImageAttachmentService imageService;
   final ContactService contactService;
@@ -1116,7 +2138,9 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
   void initState() {
     super.initState();
     _person = TextEditingController(text: widget.entry?.person ?? '');
-    _amount = TextEditingController(text: widget.entry == null ? '' : widget.entry!.amount.toStringAsFixed(0));
+    _amount = TextEditingController(
+      text: widget.entry == null ? '' : widget.entry!.amount.toStringAsFixed(0),
+    );
     _note = TextEditingController(text: widget.entry?.note ?? '');
     _kind = widget.entry?.kind ?? DebtKind.payable;
     _date = widget.entry?.date ?? DateTime.now();
@@ -1135,11 +2159,21 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
   }
 
   Future<void> _chooseImage() async {
-    final source = await showModalBottomSheet<ImageSource>(context: context, builder: (sheetContext) => _ImageSourceSheet(onSelected: (value) => Navigator.pop(sheetContext, value)));
+    final source = await showModalBottomSheet<ImageSource>(
+      context: context,
+      builder: (sheetContext) => _ImageSourceSheet(
+        onSelected: (value) => Navigator.pop(sheetContext, value),
+      ),
+    );
     if (source == null || !mounted) return;
-    final newPath = await _pickEditStoreImage(context, widget.imageService, source);
+    final newPath = await _pickEditStoreImage(
+      context,
+      widget.imageService,
+      source,
+    );
     if (newPath == null) return;
-    if (_imagePath != null && _imagePath != newPath) await widget.imageService.delete(_imagePath);
+    if (_imagePath != null && _imagePath != newPath)
+      await widget.imageService.delete(_imagePath);
     if (mounted) setState(() => _imagePath = newPath);
   }
 
@@ -1154,7 +2188,13 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
       final selected = await widget.contactService.pickContact();
       if (!mounted) return;
       if (selected == null) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Kontak tidak dipilih atau izin kontak belum diberikan.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Kontak tidak dipilih atau izin kontak belum diberikan.',
+            ),
+          ),
+        );
         return;
       }
       setState(() {
@@ -1163,7 +2203,12 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
         _person.text = selected.name;
       });
     } catch (_) {
-      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Kontak belum bisa diakses. Coba lagi.')));
+      if (mounted)
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Kontak belum bisa diakses. Coba lagi.'),
+          ),
+        );
     } finally {
       if (mounted) setState(() => _contactBusy = false);
     }
@@ -1177,20 +2222,50 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
   }
 
   Future<void> _pickDate({required bool due}) async {
-    final selected = await showDatePicker(context: context, initialDate: due ? (_dueDate ?? _date) : _date, firstDate: DateTime(2020), lastDate: DateTime(2100), helpText: due ? 'Pilih jatuh tempo' : 'Pilih tanggal hutang');
+    final selected = await showDatePicker(
+      context: context,
+      initialDate: due ? (_dueDate ?? _date) : _date,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      helpText: due ? 'Pilih jatuh tempo' : 'Pilih tanggal hutang',
+    );
     if (selected == null || !mounted) return;
-    setState(() { if (due) { _dueDate = selected; } else { _date = selected; } });
+    setState(() {
+      if (due) {
+        _dueDate = selected;
+      } else {
+        _date = selected;
+      }
+    });
   }
 
   void _save() {
     final person = _person.text.trim();
     final amount = _parseAmount(_amount.text);
     if (person.isEmpty || amount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Isi nama orang dan nominal yang valid.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Isi nama orang dan nominal yang valid.')),
+      );
       return;
     }
     setState(() => _saving = true);
-    Navigator.pop(context, DebtEntry(id: widget.entry?.id ?? _newId(), person: person, amount: amount, kind: _kind, date: _date, dueDate: _dueDate, note: _note.text.trim(), imagePath: _imagePath, contactId: _contactId, contactPhone: _contactPhone, isSettled: widget.entry?.isSettled ?? false, createdAt: widget.entry?.createdAt ?? DateTime.now()));
+    Navigator.pop(
+      context,
+      DebtEntry(
+        id: widget.entry?.id ?? _newId(),
+        person: person,
+        amount: amount,
+        kind: _kind,
+        date: _date,
+        dueDate: _dueDate,
+        note: _note.text.trim(),
+        imagePath: _imagePath,
+        contactId: _contactId,
+        contactPhone: _contactPhone,
+        isSettled: widget.entry?.isSettled ?? false,
+        createdAt: widget.entry?.createdAt ?? DateTime.now(),
+      ),
+    );
   }
 
   @override
@@ -1198,45 +2273,185 @@ class _DebtFormSheetState extends State<DebtFormSheet> {
     final colors = Theme.of(context).colorScheme;
     return _SheetShell(
       title: widget.entry == null ? 'Tambah hutang' : 'Edit catatan hutang',
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        SegmentedButton<DebtKind>(segments: const [ButtonSegment(value: DebtKind.payable, label: Text('Saya berhutang'), icon: Icon(Icons.arrow_upward_rounded)), ButtonSegment(value: DebtKind.receivable, label: Text('Dipinjam orang'), icon: Icon(Icons.arrow_downward_rounded))], selected: {_kind}, onSelectionChanged: (value) => setState(() => _kind = value.first)),
-        const SizedBox(height: 14),
-        TextField(
-          controller: _person,
-          textCapitalization: TextCapitalization.words,
-          textInputAction: TextInputAction.next,
-          decoration: InputDecoration(
-            labelText: 'Nama orang',
-            hintText: 'Ketik manual atau pilih kontak',
-            suffixIcon: _contactBusy
-                ? const Padding(padding: EdgeInsets.all(14), child: SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2)))
-                : IconButton(tooltip: 'Pilih dari kontak', onPressed: _pickContact, icon: const Icon(Icons.contacts_outlined)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SegmentedButton<DebtKind>(
+            segments: const [
+              ButtonSegment(
+                value: DebtKind.payable,
+                label: Text('Saya berhutang'),
+                icon: Icon(Icons.arrow_upward_rounded),
+              ),
+              ButtonSegment(
+                value: DebtKind.receivable,
+                label: Text('Dipinjam orang'),
+                icon: Icon(Icons.arrow_downward_rounded),
+              ),
+            ],
+            selected: {_kind},
+            onSelectionChanged: (value) => setState(() => _kind = value.first),
           ),
-        ),
-        if (_contactId != null) ...[
-          const SizedBox(height: 8),
-          Container(
-            padding: const EdgeInsets.fromLTRB(12, 9, 8, 9),
-            decoration: BoxDecoration(color: colors.primary.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(13)),
-            child: Row(children: [
-              Icon(Icons.person_outline_rounded, size: 18, color: colors.primary),
-              const SizedBox(width: 8),
-              Expanded(child: Text(_contactPhone?.isNotEmpty == true ? _contactPhone! : 'Nomor tidak tersedia', style: TextStyle(color: colors.onSurface.withValues(alpha: 0.68), fontSize: 12, fontWeight: FontWeight.w600))),
-              TextButton(onPressed: _clearContact, child: const Text('Lepas', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700))),
-            ]),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _person,
+            textCapitalization: TextCapitalization.words,
+            textInputAction: TextInputAction.next,
+            decoration: InputDecoration(
+              labelText: 'Nama orang',
+              hintText: 'Ketik manual atau pilih kontak',
+              suffixIcon: _contactBusy
+                  ? const Padding(
+                      padding: EdgeInsets.all(14),
+                      child: SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : IconButton(
+                      tooltip: 'Pilih dari kontak',
+                      onPressed: _pickContact,
+                      icon: const Icon(Icons.contacts_outlined),
+                    ),
+            ),
+          ),
+          if (_contactId != null) ...[
+            const SizedBox(height: 8),
+            Container(
+              padding: const EdgeInsets.fromLTRB(12, 9, 8, 9),
+              decoration: BoxDecoration(
+                color: colors.primary.withValues(alpha: 0.07),
+                borderRadius: BorderRadius.circular(13),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.person_outline_rounded,
+                    size: 18,
+                    color: colors.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      _contactPhone?.isNotEmpty == true
+                          ? _contactPhone!
+                          : 'Nomor tidak tersedia',
+                      style: TextStyle(
+                        color: colors.onSurface.withValues(alpha: 0.68),
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: _clearContact,
+                    child: const Text(
+                      'Lepas',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+          const SizedBox(height: 13),
+          TextField(
+            controller: _amount,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Nominal',
+              prefixText: 'Rp  ',
+              hintText: '0',
+            ),
+          ),
+          const SizedBox(height: 13),
+          Row(
+            children: [
+              Expanded(
+                child: InkWell(
+                  onTap: () => _pickDate(due: false),
+                  borderRadius: BorderRadius.circular(15),
+                  child: InputDecorator(
+                    decoration: const InputDecoration(
+                      labelText: 'Tanggal',
+                      suffixIcon: Icon(Icons.event_outlined),
+                    ),
+                    child: Text(_formatDate(_date)),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: InkWell(
+                  onTap: () => _pickDate(due: true),
+                  borderRadius: BorderRadius.circular(15),
+                  child: InputDecorator(
+                    decoration: InputDecoration(
+                      labelText: 'Jatuh tempo',
+                      suffixIcon: _dueDate == null
+                          ? const Icon(Icons.event_available_outlined)
+                          : IconButton(
+                              onPressed: () => setState(() => _dueDate = null),
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                    ),
+                    child: Text(
+                      _dueDate == null ? 'Opsional' : _formatDate(_dueDate!),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 13),
+          TextField(
+            controller: _note,
+            textCapitalization: TextCapitalization.sentences,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Catatan (opsional)',
+              hintText: 'Tambahkan konteks atau janji pembayaran',
+            ),
+          ),
+          const SizedBox(height: 15),
+          _PhotoAttachment(
+            path: _imagePath,
+            onAdd: _chooseImage,
+            onRemove: _removeImage,
+            colors: colors,
+          ),
+          const SizedBox(height: 22),
+          SizedBox(
+            width: double.infinity,
+            height: 53,
+            child: FilledButton.icon(
+              onPressed: _saving ? null : _save,
+              style: FilledButton.styleFrom(
+                backgroundColor: _kind == DebtKind.payable ? _coral : _mint,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(15),
+                ),
+              ),
+              icon: _saving
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    )
+                  : const Icon(Icons.check_rounded),
+              label: Text(
+                widget.entry == null ? 'Simpan catatan' : 'Simpan perubahan',
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
           ),
         ],
-        const SizedBox(height: 13),
-        TextField(controller: _amount, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'Nominal', prefixText: 'Rp  ', hintText: '0')),
-        const SizedBox(height: 13),
-        Row(children: [Expanded(child: InkWell(onTap: () => _pickDate(due: false), borderRadius: BorderRadius.circular(15), child: InputDecorator(decoration: const InputDecoration(labelText: 'Tanggal', suffixIcon: Icon(Icons.event_outlined)), child: Text(_formatDate(_date))))), const SizedBox(width: 12), Expanded(child: InkWell(onTap: () => _pickDate(due: true), borderRadius: BorderRadius.circular(15), child: InputDecorator(decoration: InputDecoration(labelText: 'Jatuh tempo', suffixIcon: _dueDate == null ? const Icon(Icons.event_available_outlined) : IconButton(onPressed: () => setState(() => _dueDate = null), icon: const Icon(Icons.close_rounded))), child: Text(_dueDate == null ? 'Opsional' : _formatDate(_dueDate!)))))]),
-        const SizedBox(height: 13),
-        TextField(controller: _note, textCapitalization: TextCapitalization.sentences, maxLines: 3, decoration: const InputDecoration(labelText: 'Catatan (opsional)', hintText: 'Tambahkan konteks atau janji pembayaran')),
-        const SizedBox(height: 15),
-        _PhotoAttachment(path: _imagePath, onAdd: _chooseImage, onRemove: _removeImage, colors: colors),
-        const SizedBox(height: 22),
-        SizedBox(width: double.infinity, height: 53, child: FilledButton.icon(onPressed: _saving ? null : _save, style: FilledButton.styleFrom(backgroundColor: _kind == DebtKind.payable ? _coral : _mint, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(15))), icon: _saving ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.check_rounded), label: Text(widget.entry == null ? 'Simpan catatan' : 'Simpan perubahan', style: const TextStyle(fontWeight: FontWeight.w800)))),
-      ]),
+      ),
     );
   }
 }
@@ -1260,12 +2475,35 @@ class _SheetShell extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Center(child: Container(width: 44, height: 4, decoration: BoxDecoration(color: colors.outline, borderRadius: BorderRadius.circular(99)))),
+              Center(
+                child: Container(
+                  width: 44,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: colors.outline,
+                    borderRadius: BorderRadius.circular(99),
+                  ),
+                ),
+              ),
               const SizedBox(height: 19),
-              Row(children: [
-                Expanded(child: Text(title, style: TextStyle(color: colors.onSurface, fontSize: 23, fontWeight: FontWeight.w800))),
-                IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded)),
-              ]),
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      title,
+                      style: TextStyle(
+                        color: colors.onSurface,
+                        fontSize: 23,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                ],
+              ),
               const SizedBox(height: 14),
               child,
             ],
@@ -1277,7 +2515,12 @@ class _SheetShell extends StatelessWidget {
 }
 
 class _PhotoAttachment extends StatelessWidget {
-  const _PhotoAttachment({required this.path, required this.onAdd, required this.onRemove, required this.colors});
+  const _PhotoAttachment({
+    required this.path,
+    required this.onAdd,
+    required this.onRemove,
+    required this.colors,
+  });
   final String? path;
   final VoidCallback onAdd;
   final VoidCallback onRemove;
@@ -1286,43 +2529,96 @@ class _PhotoAttachment extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final hasImage = path != null && path!.isNotEmpty;
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text('Lampiran foto', style: TextStyle(color: colors.onSurface, fontSize: 13, fontWeight: FontWeight.w700)),
-      const SizedBox(height: 8),
-      if (hasImage)
-        ClipRRect(
-          borderRadius: BorderRadius.circular(16),
-          child: Stack(
-            children: [
-              SizedBox(
-                height: 150,
-                width: double.infinity,
-                child: Image.file(
-                  File(path!),
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) => Container(
-                    color: colors.surfaceContainerHighest,
-                    child: const Icon(Icons.broken_image_outlined),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Lampiran foto',
+          style: TextStyle(
+            color: colors.onSurface,
+            fontSize: 13,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 8),
+        if (hasImage)
+          ClipRRect(
+            borderRadius: BorderRadius.circular(16),
+            child: Stack(
+              children: [
+                SizedBox(
+                  height: 150,
+                  width: double.infinity,
+                  child: Image.file(
+                    File(path!),
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) => Container(
+                      color: colors.surfaceContainerHighest,
+                      child: const Icon(Icons.broken_image_outlined),
+                    ),
                   ),
                 ),
-              ),
-              Positioned(
-                top: 9,
-                right: 9,
-                child: Row(
-                  children: [
-                    IconButton.filled(tooltip: 'Ganti foto', onPressed: onAdd, icon: const Icon(Icons.edit_rounded, size: 18)),
-                    const SizedBox(width: 5),
-                    IconButton.filled(tooltip: 'Hapus foto', onPressed: onRemove, style: IconButton.styleFrom(backgroundColor: colors.error), icon: const Icon(Icons.delete_outline_rounded, size: 18)),
-                  ],
+                Positioned(
+                  top: 9,
+                  right: 9,
+                  child: Row(
+                    children: [
+                      IconButton.filled(
+                        tooltip: 'Ganti foto',
+                        onPressed: onAdd,
+                        icon: const Icon(Icons.edit_rounded, size: 18),
+                      ),
+                      const SizedBox(width: 5),
+                      IconButton.filled(
+                        tooltip: 'Hapus foto',
+                        onPressed: onRemove,
+                        style: IconButton.styleFrom(
+                          backgroundColor: colors.error,
+                        ),
+                        icon: const Icon(
+                          Icons.delete_outline_rounded,
+                          size: 18,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          InkWell(
+            onTap: onAdd,
+            borderRadius: BorderRadius.circular(16),
+            child: Container(
+              width: double.infinity,
+              height: 82,
+              decoration: BoxDecoration(
+                color: colors.primary.withValues(alpha: 0.07),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(
+                  color: colors.primary.withValues(alpha: 0.26),
                 ),
               ),
-            ],
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.add_a_photo_outlined, color: colors.primary),
+                  const SizedBox(height: 5),
+                  Text(
+                    'Tambah foto dari galeri atau kamera',
+                    style: TextStyle(
+                      color: colors.primary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
-        )
-      else
-        InkWell(onTap: onAdd, borderRadius: BorderRadius.circular(16), child: Container(width: double.infinity, height: 82, decoration: BoxDecoration(color: colors.primary.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(16), border: Border.all(color: colors.primary.withValues(alpha: 0.26))), child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [Icon(Icons.add_a_photo_outlined, color: colors.primary), const SizedBox(height: 5), Text('Tambah foto dari galeri atau kamera', style: TextStyle(color: colors.primary, fontSize: 12, fontWeight: FontWeight.w700))])))
-    ]);
+      ],
+    );
   }
 }
 
@@ -1333,12 +2629,64 @@ class _ImageSourceSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return SafeArea(child: Padding(padding: const EdgeInsets.fromLTRB(20, 14, 20, 18), child: Column(mainAxisSize: MainAxisSize.min, children: [Center(child: Container(width: 42, height: 4, decoration: BoxDecoration(color: colors.outline, borderRadius: BorderRadius.circular(99)))), const SizedBox(height: 17), Text('Pilih sumber foto', style: TextStyle(color: colors.onSurface, fontSize: 18, fontWeight: FontWeight.w800)), const SizedBox(height: 12), Row(children: [Expanded(child: _SourceButton(icon: Icons.photo_library_outlined, label: 'Galeri', onTap: () => onSelected(ImageSource.gallery))), const SizedBox(width: 12), Expanded(child: _SourceButton(icon: Icons.photo_camera_outlined, label: 'Kamera', onTap: () => onSelected(ImageSource.camera)))])])));
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Center(
+              child: Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: colors.outline,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            ),
+            const SizedBox(height: 17),
+            Text(
+              'Pilih sumber foto',
+              style: TextStyle(
+                color: colors.onSurface,
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _SourceButton(
+                    icon: Icons.photo_library_outlined,
+                    label: 'Galeri',
+                    onTap: () => onSelected(ImageSource.gallery),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: _SourceButton(
+                    icon: Icons.photo_camera_outlined,
+                    label: 'Kamera',
+                    onTap: () => onSelected(ImageSource.camera),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
 class _SourceButton extends StatelessWidget {
-  const _SourceButton({required this.icon, required this.label, required this.onTap});
+  const _SourceButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
   final IconData icon;
   final String label;
   final VoidCallback onTap;
@@ -1346,7 +2694,30 @@ class _SourceButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    return InkWell(onTap: onTap, borderRadius: BorderRadius.circular(12), child: Container(padding: const EdgeInsets.symmetric(vertical: 19), decoration: BoxDecoration(color: colors.primary.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(12)), child: Column(children: [Icon(icon, color: colors.primary, size: 28), const SizedBox(height: 7), Text(label, style: TextStyle(color: colors.onSurface, fontWeight: FontWeight.w700))])));
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(12),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 19),
+        decoration: BoxDecoration(
+          color: colors.primary.withValues(alpha: 0.08),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Column(
+          children: [
+            Icon(icon, color: colors.primary, size: 28),
+            const SizedBox(height: 7),
+            Text(
+              label,
+              style: TextStyle(
+                color: colors.onSurface,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -1388,7 +2759,10 @@ class _CommunicationSheetState extends State<CommunicationSheet> {
   void _submit() {
     final message = _message.text.trim();
     if (message.isEmpty) return;
-    Navigator.pop(context, CommunicationRequest(channel: _channel, message: message));
+    Navigator.pop(
+      context,
+      CommunicationRequest(channel: _channel, message: message),
+    );
   }
 
   @override
@@ -1397,36 +2771,108 @@ class _CommunicationSheetState extends State<CommunicationSheet> {
     final isWhatsApp = _channel == CommunicationChannel.whatsapp;
     return _SheetShell(
       title: 'Kirim pengingat',
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
-          decoration: BoxDecoration(color: colors.primary.withValues(alpha: 0.07), borderRadius: BorderRadius.circular(14)),
-          child: Row(children: [
-            Icon(Icons.person_outline_rounded, color: colors.primary, size: 20),
-            const SizedBox(width: 9),
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(widget.entry.person, style: TextStyle(color: colors.onSurface, fontWeight: FontWeight.w800)), const SizedBox(height: 2), Text(widget.entry.contactPhone ?? '', style: TextStyle(color: colors.onSurface.withValues(alpha: 0.58), fontSize: 12))])),
-          ]),
-        ),
-        const SizedBox(height: 15),
-        SegmentedButton<CommunicationChannel>(
-          segments: const [
-            ButtonSegment(value: CommunicationChannel.whatsapp, label: Text('WhatsApp'), icon: Icon(Icons.chat_rounded)),
-            ButtonSegment(value: CommunicationChannel.sms, label: Text('SMS'), icon: Icon(Icons.sms_outlined)),
-          ],
-          selected: {_channel},
-          onSelectionChanged: (value) => setState(() => _channel = value.first),
-        ),
-        const SizedBox(height: 14),
-        TextField(controller: _message, maxLines: 6, textCapitalization: TextCapitalization.sentences, decoration: const InputDecoration(labelText: 'Pesan', alignLabelWithHint: true, hintText: 'Tulis pesan pengingat...')),
-        const SizedBox(height: 19),
-        SizedBox(width: double.infinity, height: 52, child: FilledButton.icon(onPressed: _submit, style: FilledButton.styleFrom(backgroundColor: isWhatsApp ? const Color(0xFF16A085) : colors.primary, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14))), icon: Icon(isWhatsApp ? Icons.chat_rounded : Icons.sms_rounded), label: Text(isWhatsApp ? 'Buka WhatsApp' : 'Buka aplikasi SMS', style: const TextStyle(fontWeight: FontWeight.w800)))),
-      ]),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
+            decoration: BoxDecoration(
+              color: colors.primary.withValues(alpha: 0.07),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.person_outline_rounded,
+                  color: colors.primary,
+                  size: 20,
+                ),
+                const SizedBox(width: 9),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.entry.person,
+                        style: TextStyle(
+                          color: colors.onSurface,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        widget.entry.contactPhone ?? '',
+                        style: TextStyle(
+                          color: colors.onSurface.withValues(alpha: 0.58),
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 15),
+          SegmentedButton<CommunicationChannel>(
+            segments: const [
+              ButtonSegment(
+                value: CommunicationChannel.whatsapp,
+                label: Text('WhatsApp'),
+                icon: Icon(Icons.chat_rounded),
+              ),
+              ButtonSegment(
+                value: CommunicationChannel.sms,
+                label: Text('SMS'),
+                icon: Icon(Icons.sms_outlined),
+              ),
+            ],
+            selected: {_channel},
+            onSelectionChanged: (value) =>
+                setState(() => _channel = value.first),
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _message,
+            maxLines: 6,
+            textCapitalization: TextCapitalization.sentences,
+            decoration: const InputDecoration(
+              labelText: 'Pesan',
+              alignLabelWithHint: true,
+              hintText: 'Tulis pesan pengingat...',
+            ),
+          ),
+          const SizedBox(height: 19),
+          SizedBox(
+            width: double.infinity,
+            height: 52,
+            child: FilledButton.icon(
+              onPressed: _submit,
+              style: FilledButton.styleFrom(
+                backgroundColor: isWhatsApp
+                    ? const Color(0xFF16A085)
+                    : colors.primary,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14),
+                ),
+              ),
+              icon: Icon(isWhatsApp ? Icons.chat_rounded : Icons.sms_rounded),
+              label: Text(
+                isWhatsApp ? 'Buka WhatsApp' : 'Buka aplikasi SMS',
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
 String _defaultDebtMessage(DebtEntry entry) {
-  final due = entry.dueDate == null ? '' : ' Jatuh tempo yang tercatat adalah ${_formatDate(entry.dueDate!)}.';
+  final due = entry.dueDate == null
+      ? ''
+      : ' Jatuh tempo yang tercatat adalah ${_formatDate(entry.dueDate!)}.';
   if (entry.kind == DebtKind.payable) {
     return 'Halo ${entry.person}, saya ingin mengabari tentang hutang saya sebesar ${_formatCurrency(entry.amount)}.$due Terima kasih.';
   }
@@ -1434,14 +2880,22 @@ String _defaultDebtMessage(DebtEntry entry) {
 }
 
 class ThemeSettingsSheet extends StatelessWidget {
-  const ThemeSettingsSheet({super.key, required this.selected, required this.onSelected});
+  const ThemeSettingsSheet({
+    super.key,
+    required this.selected,
+    required this.onSelected,
+  });
   final ThemeMode selected;
   final ValueChanged<ThemeMode> onSelected;
 
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    final options = [(ThemeMode.system, 'Ikuti sistem', Icons.brightness_auto_rounded), (ThemeMode.light, 'Terang', Icons.light_mode_rounded), (ThemeMode.dark, 'Gelap', Icons.dark_mode_rounded)];
+    final options = [
+      (ThemeMode.system, 'Ikuti sistem', Icons.brightness_auto_rounded),
+      (ThemeMode.light, 'Terang', Icons.light_mode_rounded),
+      (ThemeMode.dark, 'Gelap', Icons.dark_mode_rounded),
+    ];
     return SafeArea(
       child: Padding(
         padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
@@ -1449,11 +2903,33 @@ class ThemeSettingsSheet extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Center(child: Container(width: 42, height: 4, decoration: BoxDecoration(color: colors.outline, borderRadius: BorderRadius.circular(99)))),
+            Center(
+              child: Container(
+                width: 42,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: colors.outline,
+                  borderRadius: BorderRadius.circular(99),
+                ),
+              ),
+            ),
             const SizedBox(height: 18),
-            Text('Tampilan aplikasi', style: TextStyle(color: colors.onSurface, fontSize: 20, fontWeight: FontWeight.w800)),
+            Text(
+              'Tampilan aplikasi',
+              style: TextStyle(
+                color: colors.onSurface,
+                fontSize: 20,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
             const SizedBox(height: 5),
-            Text('Pilih tema yang paling nyaman untukmu.', style: TextStyle(color: colors.onSurface.withValues(alpha: 0.6), fontSize: 13)),
+            Text(
+              'Pilih tema yang paling nyaman untukmu.',
+              style: TextStyle(
+                color: colors.onSurface.withValues(alpha: 0.6),
+                fontSize: 13,
+              ),
+            ),
             const SizedBox(height: 13),
             RadioGroup<ThemeMode>(
               groupValue: selected,
@@ -1464,13 +2940,20 @@ class ThemeSettingsSheet extends StatelessWidget {
                 }
               },
               child: Column(
-                children: options.map((option) => RadioListTile<ThemeMode>(
-                  value: option.$1,
-                  title: Text(option.$2, style: const TextStyle(fontWeight: FontWeight.w600)),
-                  secondary: Icon(option.$3, color: colors.primary),
-                  activeColor: colors.primary,
-                  contentPadding: EdgeInsets.zero,
-                )).toList(),
+                children: options
+                    .map(
+                      (option) => RadioListTile<ThemeMode>(
+                        value: option.$1,
+                        title: Text(
+                          option.$2,
+                          style: const TextStyle(fontWeight: FontWeight.w600),
+                        ),
+                        secondary: Icon(option.$3, color: colors.primary),
+                        activeColor: colors.primary,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    )
+                    .toList(),
               ),
             ),
           ],
@@ -1497,7 +2980,8 @@ class _CalculatorSheetState extends State<CalculatorSheet> {
         _expression = '';
         _result = '0';
       } else if (value == '⌫') {
-        if (_expression.isNotEmpty) _expression = _expression.substring(0, _expression.length - 1);
+        if (_expression.isNotEmpty)
+          _expression = _expression.substring(0, _expression.length - 1);
       } else if (value == '=') {
         final calculated = _calculateExpression(_expression);
         if (calculated != null) _result = _formatNumber(calculated);
@@ -1510,7 +2994,28 @@ class _CalculatorSheetState extends State<CalculatorSheet> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
-    const keys = ['C', '⌫', '÷', '×', '7', '8', '9', '−', '4', '5', '6', '+', '1', '2', '3', '=', '00', '0', '.', ''];
+    const keys = [
+      'C',
+      '⌫',
+      '÷',
+      '×',
+      '7',
+      '8',
+      '9',
+      '−',
+      '4',
+      '5',
+      '6',
+      '+',
+      '1',
+      '2',
+      '3',
+      '=',
+      '00',
+      '0',
+      '.',
+      '',
+    ];
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
       child: Material(
@@ -1523,40 +3028,109 @@ class _CalculatorSheetState extends State<CalculatorSheet> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Center(child: Container(width: 44, height: 4, decoration: BoxDecoration(color: colors.outline, borderRadius: BorderRadius.circular(99)))),
+                Center(
+                  child: Container(
+                    width: 44,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: colors.outline,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
                 const SizedBox(height: 19),
-                Row(children: [
-                  Expanded(child: Text('Kalkulator cepat', style: TextStyle(color: colors.onSurface, fontSize: 21, fontWeight: FontWeight.w800))),
-                  IconButton(onPressed: () => Navigator.pop(context), icon: const Icon(Icons.close_rounded)),
-                ]),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Kalkulator cepat',
+                        style: TextStyle(
+                          color: colors.onSurface,
+                          fontSize: 21,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => Navigator.pop(context),
+                      icon: const Icon(Icons.close_rounded),
+                    ),
+                  ],
+                ),
                 Container(
                   width: double.infinity,
                   padding: const EdgeInsets.fromLTRB(18, 15, 18, 18),
-                  decoration: BoxDecoration(color: colors.primary.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(12)),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
-                    Text(_expression.isEmpty ? 'Masukkan angka' : _expression, style: TextStyle(color: colors.onSurface.withValues(alpha: 0.55), fontSize: 15)),
-                    const SizedBox(height: 7),
-                    Text(_result, style: TextStyle(color: colors.onSurface, fontSize: 31, fontWeight: FontWeight.w800)),
-                  ]),
+                  decoration: BoxDecoration(
+                    color: colors.primary.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text(
+                        _expression.isEmpty ? 'Masukkan angka' : _expression,
+                        style: TextStyle(
+                          color: colors.onSurface.withValues(alpha: 0.55),
+                          fontSize: 15,
+                        ),
+                      ),
+                      const SizedBox(height: 7),
+                      Text(
+                        _result,
+                        style: TextStyle(
+                          color: colors.onSurface,
+                          fontSize: 31,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 13),
                 GridView.builder(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
                   itemCount: keys.length,
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: 4, crossAxisSpacing: 9, mainAxisSpacing: 9, childAspectRatio: 1.55),
+                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: 4,
+                    crossAxisSpacing: 9,
+                    mainAxisSpacing: 9,
+                    childAspectRatio: 1.55,
+                  ),
                   itemBuilder: (context, index) {
                     final label = keys[index];
                     if (label.isEmpty) return const SizedBox.shrink();
-                    final isAction = ['C', '⌫', '÷', '×', '−', '+', '='].contains(label);
+                    final isAction = [
+                      'C',
+                      '⌫',
+                      '÷',
+                      '×',
+                      '−',
+                      '+',
+                      '=',
+                    ].contains(label);
                     return FilledButton(
                       onPressed: () => _tap(label),
                       style: FilledButton.styleFrom(
-                        backgroundColor: label == '=' ? colors.primary : isAction ? colors.primary.withValues(alpha: 0.13) : colors.surfaceContainerHighest,
-                        foregroundColor: label == '=' ? Colors.white : colors.onSurface,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(13)),
+                        backgroundColor: label == '='
+                            ? colors.primary
+                            : isAction
+                            ? colors.primary.withValues(alpha: 0.13)
+                            : colors.surfaceContainerHighest,
+                        foregroundColor: label == '='
+                            ? Colors.white
+                            : colors.onSurface,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(13),
+                        ),
                       ),
-                      child: Text(label, style: TextStyle(fontSize: label == '⌫' ? 18 : 17, fontWeight: FontWeight.w800)),
+                      child: Text(
+                        label,
+                        style: TextStyle(
+                          fontSize: label == '⌫' ? 18 : 17,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
                     );
                   },
                 ),
@@ -1571,8 +3145,13 @@ class _CalculatorSheetState extends State<CalculatorSheet> {
 
 double? _calculateExpression(String expression) {
   if (expression.isEmpty) return null;
-  final tokens = RegExp(r'\d+(?:\.\d+)?|[+\-×÷]').allMatches(expression).map((match) => match.group(0)!).toList();
-  if (tokens.isEmpty || tokens.first.length == 1 && '+−×÷'.contains(tokens.first)) return null;
+  final tokens = RegExp(r'\d+(?:\.\d+)?|[+\-×÷]')
+      .allMatches(expression)
+      .map((match) => match.group(0)!)
+      .toList();
+  if (tokens.isEmpty ||
+      tokens.first.length == 1 && '+−×÷'.contains(tokens.first))
+    return null;
   try {
     final values = <double>[double.parse(tokens.first)];
     final lowOperators = <String>[];
@@ -1581,7 +3160,9 @@ double? _calculateExpression(String expression) {
       final number = double.parse(tokens[index + 1]);
       if (operator == '×' || operator == '÷') {
         if (operator == '÷' && number == 0) return null;
-        values[values.length - 1] = operator == '×' ? values.last * number : values.last / number;
+        values[values.length - 1] = operator == '×'
+            ? values.last * number
+            : values.last / number;
       } else {
         values.add(number);
         lowOperators.add(operator);
@@ -1589,7 +3170,9 @@ double? _calculateExpression(String expression) {
     }
     var result = values.first;
     for (var index = 0; index < lowOperators.length; index++) {
-      result = lowOperators[index] == '+' ? result + values[index + 1] : result - values[index + 1];
+      result = lowOperators[index] == '+'
+          ? result + values[index + 1]
+          : result - values[index + 1];
     }
     return result.isFinite ? result : null;
   } catch (_) {
@@ -1598,16 +3181,27 @@ double? _calculateExpression(String expression) {
 }
 
 Future<bool> _confirmDeleteEntry(BuildContext context, Object entry) async {
-  final label = entry is ExpenseEntry ? entry.title : entry is DebtEntry ? entry.person : 'catatan ini';
+  final label = entry is ExpenseEntry
+      ? entry.title
+      : entry is DebtEntry
+      ? entry.person
+      : 'catatan ini';
   final result = await showDialog<bool>(
     context: context,
     builder: (dialogContext) => AlertDialog(
       title: const Text('Hapus catatan?'),
-      content: Text('Catatan "$label" akan dihapus. Tindakan ini tidak bisa dibatalkan dari daftar utama.'),
+      content: Text(
+        'Catatan "$label" akan dihapus. Tindakan ini tidak bisa dibatalkan dari daftar utama.',
+      ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Batal')),
+        TextButton(
+          onPressed: () => Navigator.pop(dialogContext, false),
+          child: const Text('Batal'),
+        ),
         FilledButton(
-          style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+          style: FilledButton.styleFrom(
+            backgroundColor: Theme.of(context).colorScheme.error,
+          ),
           onPressed: () => Navigator.pop(dialogContext, true),
           child: const Text('Hapus'),
         ),
@@ -1617,18 +3211,18 @@ Future<bool> _confirmDeleteEntry(BuildContext context, Object entry) async {
   return result ?? false;
 }
 
-Future<String?> _pickEditStoreImage(BuildContext context, ImageAttachmentService service, ImageSource source) async {
+Future<String?> _pickEditStoreImage(
+  BuildContext context,
+  ImageAttachmentService service,
+  ImageSource source,
+) async {
   final pickedPath = await service.pickAndStore(source: source);
   if (pickedPath == null) return null;
   final bytes = await File(pickedPath).readAsBytes();
   if (!context.mounted) return pickedPath;
   final edited = await Navigator.push<Uint8List>(
     context,
-    MaterialPageRoute(
-      builder: (_) => ImageEditor(
-        image: bytes,
-      ),
-    ),
+    MaterialPageRoute(builder: (_) => ImageEditor(image: bytes)),
   );
   if (edited == null) return pickedPath;
   final editedPath = await service.storeBytes(edited);
@@ -1639,32 +3233,77 @@ Future<String?> _pickEditStoreImage(BuildContext context, ImageAttachmentService
 String _formatCurrency(double value) => 'Rp ${_formatNumber(value)}';
 String _formatNumber(double value) {
   final fixed = value.round().toString();
-  return fixed.replaceAllMapped(RegExp(r'\B(?=(\d{3})+(?!\d))'), (match) => '.');
+  return fixed.replaceAllMapped(
+    RegExp(r'\B(?=(\d{3})+(?!\d))'),
+    (match) => '.',
+  );
 }
 
 double _parseAmount(String raw) {
-  final normalized = raw.trim().replaceAll(' ', '').replaceAll('.', '').replaceAll(',', '.');
+  final normalized = raw
+      .trim()
+      .replaceAll(' ', '')
+      .replaceAll('.', '')
+      .replaceAll(',', '.');
   return double.tryParse(normalized) ?? 0;
 }
 
-String _newId() => '${DateTime.now().microsecondsSinceEpoch}_${math.Random().nextInt(9999)}';
+String _newId() =>
+    '${DateTime.now().microsecondsSinceEpoch}_${math.Random().nextInt(9999)}';
 
 String _formatDate(DateTime date) {
-  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'Mei',
+    'Jun',
+    'Jul',
+    'Agu',
+    'Sep',
+    'Okt',
+    'Nov',
+    'Des',
+  ];
   return '${date.day} ${months[date.month - 1]} ${date.year}';
 }
 
 String _categoryLabel(ExpenseCategory category) {
-  const labels = {ExpenseCategory.food: 'Makanan', ExpenseCategory.transport: 'Transportasi', ExpenseCategory.shopping: 'Belanja', ExpenseCategory.bills: 'Tagihan', ExpenseCategory.health: 'Kesehatan', ExpenseCategory.entertainment: 'Hiburan', ExpenseCategory.other: 'Lainnya'};
+  const labels = {
+    ExpenseCategory.food: 'Makanan',
+    ExpenseCategory.transport: 'Transportasi',
+    ExpenseCategory.shopping: 'Belanja',
+    ExpenseCategory.bills: 'Tagihan',
+    ExpenseCategory.health: 'Kesehatan',
+    ExpenseCategory.entertainment: 'Hiburan',
+    ExpenseCategory.other: 'Lainnya',
+  };
   return labels[category]!;
 }
 
 IconData _categoryIcon(ExpenseCategory category) {
-  const icons = {ExpenseCategory.food: Icons.restaurant_rounded, ExpenseCategory.transport: Icons.directions_car_filled_rounded, ExpenseCategory.shopping: Icons.shopping_bag_rounded, ExpenseCategory.bills: Icons.receipt_rounded, ExpenseCategory.health: Icons.medical_services_rounded, ExpenseCategory.entertainment: Icons.movie_rounded, ExpenseCategory.other: Icons.more_horiz_rounded};
+  const icons = {
+    ExpenseCategory.food: Icons.restaurant_rounded,
+    ExpenseCategory.transport: Icons.directions_car_filled_rounded,
+    ExpenseCategory.shopping: Icons.shopping_bag_rounded,
+    ExpenseCategory.bills: Icons.receipt_rounded,
+    ExpenseCategory.health: Icons.medical_services_rounded,
+    ExpenseCategory.entertainment: Icons.movie_rounded,
+    ExpenseCategory.other: Icons.more_horiz_rounded,
+  };
   return icons[category]!;
 }
 
 Color _categoryColor(ExpenseCategory category, ColorScheme colors) {
-  const palette = {ExpenseCategory.food: Color(0xFFF97316), ExpenseCategory.transport: Color(0xFF3B82F6), ExpenseCategory.shopping: Color(0xFF8B5CF6), ExpenseCategory.bills: Color(0xFF0EA5E9), ExpenseCategory.health: Color(0xFFEF4444), ExpenseCategory.entertainment: Color(0xFFEC4899), ExpenseCategory.other: Color(0xFF64748B)};
+  const palette = {
+    ExpenseCategory.food: Color(0xFFF97316),
+    ExpenseCategory.transport: Color(0xFF3B82F6),
+    ExpenseCategory.shopping: Color(0xFF8B5CF6),
+    ExpenseCategory.bills: Color(0xFF0EA5E9),
+    ExpenseCategory.health: Color(0xFFEF4444),
+    ExpenseCategory.entertainment: Color(0xFFEC4899),
+    ExpenseCategory.other: Color(0xFF64748B),
+  };
   return palette[category]!;
 }
