@@ -55,9 +55,14 @@ class _DashboardImageRailState extends State<DashboardImageRail>
     _autoAdvance?.cancel();
     if (widget.urls.length < 2) return;
     _autoAdvance = Timer.periodic(const Duration(seconds: 5), (_) {
-      if (!mounted || !_pageController.hasClients || widget.urls.isEmpty) return;
+      if (!mounted || !_pageController.hasClients || widget.urls.isEmpty)
+        return;
       final next = (_page + 1) % widget.urls.length;
-      _pageController.animateToPage(next, duration: const Duration(milliseconds: 480), curve: Curves.easeOutCubic);
+      _pageController.animateToPage(
+        next,
+        duration: const Duration(milliseconds: 480),
+        curve: Curves.easeOutCubic,
+      );
     });
   }
 

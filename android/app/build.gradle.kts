@@ -56,9 +56,10 @@ android {
     }
 
     buildTypes {
-        release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            release {
+            val fastRelease = providers.gradleProperty("fastRelease").orNull == "true"
+            isMinifyEnabled = !fastRelease
+            isShrinkResources = !fastRelease
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",

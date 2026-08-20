@@ -60,3 +60,4 @@ android/keystores/
 
 # Local signing scratch files
 signing/
+*.hprof

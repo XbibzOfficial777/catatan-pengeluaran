@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/finance_models.dart';
 import '../models/reminder_models.dart';
+import '../models/advanced_finance_models.dart';
 import 'backup_integrity_service.dart';
 
 class RestorePayload {
@@ -18,6 +19,10 @@ class RestorePayload {
     required this.sourceName,
     this.pocketMoney = 0,
     this.reminders = const <ReminderSchedule>[],
+    this.accounts = const <MoneyAccount>[],
+    this.budgets = const <BudgetLimit>[],
+    this.recurring = const <RecurringExpense>[],
+    this.privacyMode = false,
   });
 
   final List<ExpenseEntry> expenses;
@@ -25,6 +30,10 @@ class RestorePayload {
   final String sourceName;
   final double pocketMoney;
   final List<ReminderSchedule> reminders;
+  final List<MoneyAccount> accounts;
+  final List<BudgetLimit> budgets;
+  final List<RecurringExpense> recurring;
+  final bool privacyMode;
 }
 
 class DataTransferService {
@@ -132,12 +141,42 @@ class DataTransferService {
       reminders.add(ReminderSchedule.fromJson(_integrity.parseEntry(item)));
     }
 
+    final accounts = <MoneyAccount>[];
+    for (final item
+        in root.findElements('accounts').firstOrNull?.findElements('account') ??
+            const <XmlElement>[]) {
+      accounts.add(MoneyAccount.fromJson(_integrity.parseEntry(item)));
+    }
+    final budgets = <BudgetLimit>[];
+    for (final item
+        in root.findElements('budgets').firstOrNull?.findElements('budget') ??
+            const <XmlElement>[]) {
+      budgets.add(BudgetLimit.fromJson(_integrity.parseEntry(item)));
+    }
+    final recurring = <RecurringExpense>[];
+    for (final item
+        in root
+                .findElements('recurringExpenses')
+                .firstOrNull
+                ?.findElements('recurringExpense') ??
+            const <XmlElement>[]) {
+      recurring.add(RecurringExpense.fromJson(_integrity.parseEntry(item)));
+    }
+    final privacyMode =
+        (root.findElements('privacyMode').firstOrNull?.innerText ?? 'false')
+            .toLowerCase() ==
+        'true';
+
     return RestorePayload(
       expenses: expenses,
       debts: debts,
       sourceName: source.path.split('/').last,
       pocketMoney: pocketMoney,
       reminders: reminders,
+      accounts: accounts,
+      budgets: budgets,
+      recurring: recurring,
+      privacyMode: privacyMode,
     );
   }
 

@@ -19,6 +19,8 @@ class ExpenseEntry {
     required this.date,
     this.note = '',
     this.imagePath,
+    this.accountId,
+    this.recurringId,
     required this.createdAt,
   });
 
@@ -29,6 +31,8 @@ class ExpenseEntry {
   final DateTime date;
   final String note;
   final String? imagePath;
+  final String? accountId;
+  final String? recurringId;
   final DateTime createdAt;
 
   ExpenseEntry copyWith({
@@ -39,6 +43,8 @@ class ExpenseEntry {
     String? note,
     String? imagePath,
     bool clearImage = false,
+    String? accountId,
+    String? recurringId,
   }) {
     return ExpenseEntry(
       id: id,
@@ -48,23 +54,28 @@ class ExpenseEntry {
       date: date ?? this.date,
       note: note ?? this.note,
       imagePath: clearImage ? null : (imagePath ?? this.imagePath),
+      accountId: accountId ?? this.accountId,
+      recurringId: recurringId ?? this.recurringId,
       createdAt: createdAt,
     );
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'title': title,
-        'amount': amount,
-        'category': category.name,
-        'date': date.toIso8601String(),
-        'note': note,
-        'imagePath': imagePath,
-        'createdAt': createdAt.toIso8601String(),
-      };
+    'id': id,
+    'title': title,
+    'amount': amount,
+    'category': category.name,
+    'date': date.toIso8601String(),
+    'note': note,
+    'imagePath': imagePath,
+    'accountId': accountId,
+    'recurringId': recurringId,
+    'createdAt': createdAt.toIso8601String(),
+  };
 
   factory ExpenseEntry.fromJson(Map<String, dynamic> json) {
-    final categoryName = json['category'] as String? ?? ExpenseCategory.other.name;
+    final categoryName =
+        json['category'] as String? ?? ExpenseCategory.other.name;
     return ExpenseEntry(
       id: json['id'] as String,
       title: json['title'] as String? ?? 'Pengeluaran',
@@ -76,7 +87,11 @@ class ExpenseEntry {
       date: DateTime.tryParse(json['date'] as String? ?? '') ?? DateTime.now(),
       note: json['note'] as String? ?? '',
       imagePath: json['imagePath'] as String?,
-      createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
+      accountId: json['accountId'] as String?,
+      recurringId: json['recurringId'] as String?,
+      createdAt:
+          DateTime.tryParse(json['createdAt'] as String? ?? '') ??
+          DateTime.now(),
     );
   }
 }
@@ -142,19 +157,19 @@ class DebtEntry {
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'person': person,
-        'amount': amount,
-        'kind': kind.name,
-        'date': date.toIso8601String(),
-        'dueDate': dueDate?.toIso8601String(),
-        'note': note,
-        'imagePath': imagePath,
-        'contactId': contactId,
-        'contactPhone': contactPhone,
-        'isSettled': isSettled,
-        'createdAt': createdAt.toIso8601String(),
-      };
+    'id': id,
+    'person': person,
+    'amount': amount,
+    'kind': kind.name,
+    'date': date.toIso8601String(),
+    'dueDate': dueDate?.toIso8601String(),
+    'note': note,
+    'imagePath': imagePath,
+    'contactId': contactId,
+    'contactPhone': contactPhone,
+    'isSettled': isSettled,
+    'createdAt': createdAt.toIso8601String(),
+  };
 
   factory DebtEntry.fromJson(Map<String, dynamic> json) {
     final kindName = json['kind'] as String? ?? DebtKind.payable.name;
@@ -173,7 +188,9 @@ class DebtEntry {
       contactId: json['contactId'] as String?,
       contactPhone: json['contactPhone'] as String?,
       isSettled: json['isSettled'] as bool? ?? false,
-      createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
+      createdAt:
+          DateTime.tryParse(json['createdAt'] as String? ?? '') ??
+          DateTime.now(),
     );
   }
 }

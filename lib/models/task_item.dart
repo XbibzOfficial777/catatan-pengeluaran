@@ -51,7 +51,8 @@ class TaskItem {
   }
 
   factory TaskItem.fromJson(Map<String, dynamic> json) {
-    final priorityName = json['priority'] as String? ?? TaskPriority.medium.name;
+    final priorityName =
+        json['priority'] as String? ?? TaskPriority.medium.name;
     final priority = TaskPriority.values.firstWhere(
       (value) => value.name == priorityName,
       orElse: () => TaskPriority.medium,
@@ -66,7 +67,9 @@ class TaskItem {
           : DateTime.tryParse(json['dueDate'] as String),
       priority: priority,
       isCompleted: json['isCompleted'] as bool? ?? false,
-      createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
+      createdAt:
+          DateTime.tryParse(json['createdAt'] as String? ?? '') ??
+          DateTime.now(),
     );
   }
 }

@@ -3,13 +3,19 @@ import 'package:url_launcher/url_launcher.dart';
 class CommunicationService {
   Future<bool> openWhatsApp({required String phone, required String message}) {
     final normalized = normalizePhone(phone);
-    final uri = Uri.parse('https://wa.me/$normalized?text=${Uri.encodeComponent(message)}');
+    final uri = Uri.parse(
+      'https://wa.me/$normalized?text=${Uri.encodeComponent(message)}',
+    );
     return launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 
   Future<bool> openSms({required String phone, required String message}) {
     final normalized = normalizePhone(phone);
-    final uri = Uri(scheme: 'sms', path: normalized, queryParameters: {'body': message});
+    final uri = Uri(
+      scheme: 'sms',
+      path: normalized,
+      queryParameters: {'body': message},
+    );
     return launchUrl(uri, mode: LaunchMode.externalApplication);
   }
 

@@ -6,6 +6,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../models/finance_models.dart';
 import '../models/reminder_models.dart';
+import '../models/advanced_finance_models.dart';
 import 'backup_integrity_service.dart';
 
 class BackupService {
@@ -19,6 +20,10 @@ class BackupService {
     required List<DebtEntry> debts,
     double pocketMoney = 0,
     List<ReminderSchedule> reminders = const <ReminderSchedule>[],
+    List<MoneyAccount> accounts = const <MoneyAccount>[],
+    List<BudgetLimit> budgets = const <BudgetLimit>[],
+    List<RecurringExpense> recurring = const <RecurringExpense>[],
+    bool privacyMode = false,
   }) async {
     await _requestStoragePermission();
     final root = Directory('/storage/emulated/0/Documents/CatatBibz');
@@ -56,6 +61,17 @@ class BackupService {
       final reminderXml = reminders
           .map((item) => _integrity.createEntry('reminder', item.toJson()))
           .toList();
+      final accountXml = accounts
+          .map((item) => _integrity.createEntry('account', item.toJson()))
+          .toList();
+      final budgetXml = budgets
+          .map((item) => _integrity.createEntry('budget', item.toJson()))
+          .toList();
+      final recurringXml = recurring
+          .map(
+            (item) => _integrity.createEntry('recurringExpense', item.toJson()),
+          )
+          .toList();
       final fileXml = <XmlElement>[];
       await for (final entity in photos.list()) {
         if (entity is! File) continue;
@@ -70,6 +86,10 @@ class BackupService {
         expenses: expenseXml,
         debts: debtXml,
         reminders: reminderXml,
+        accounts: accountXml,
+        budgets: budgetXml,
+        recurring: recurringXml,
+        privacyMode: privacyMode,
         files: fileXml,
       );
       final signature = await _integrity.createSignature(

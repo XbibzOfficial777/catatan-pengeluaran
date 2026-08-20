@@ -50,6 +50,10 @@ class BackupIntegrityService {
     required List<XmlElement> expenses,
     required List<XmlElement> debts,
     required List<XmlElement> reminders,
+    required List<XmlElement> accounts,
+    required List<XmlElement> budgets,
+    required List<XmlElement> recurring,
+    required bool privacyMode,
     required List<XmlElement> files,
   }) {
     return XmlElement.tag(
@@ -66,6 +70,10 @@ class BackupIntegrityService {
         XmlElement.tag('expenses', children: expenses),
         XmlElement.tag('debts', children: debts),
         XmlElement.tag('reminders', children: reminders),
+        XmlElement.tag('accounts', children: accounts),
+        XmlElement.tag('budgets', children: budgets),
+        XmlElement.tag('recurringExpenses', children: recurring),
+        _textElement('privacyMode', privacyMode.toString()),
         XmlElement.tag('files', children: files),
       ],
     );

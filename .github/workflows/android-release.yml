@@ -73,13 +73,11 @@ jobs:
 
       - name: Configure fast CI build
         run: |
-          sed -i 's/-Xmx768m/-Xmx4g/' android/gradle.properties
+          sed -i -E 's/-Xmx[0-9]+m/-Xmx4g/' android/gradle.properties
           sed -i 's/org.gradle.workers.max=1/org.gradle.workers.max=2/' android/gradle.properties
           sed -i 's/org.gradle.parallel=false/org.gradle.parallel=true/' android/gradle.properties
-          # R8/resource shrinking stays enabled in the sandbox release build.
-          # CI uses fast mode so tags produce a release quickly.
-          sed -i 's/isMinifyEnabled = true/isMinifyEnabled = false/' android/app/build.gradle.kts
-          sed -i 's/isShrinkResources = true/isShrinkResources = false/' android/app/build.gradle.kts
+          # build.gradle.kts reads this property and disables R8/resource shrinking only in CI.
+          echo 'ORG_GRADLE_PROJECT_fastRelease=true' >> "$GITHUB_ENV"
 
       - name: Build arm64-v8a fast release APK
         run: >-

@@ -5,7 +5,8 @@ import 'package:image_picker/image_picker.dart';
 import 'package:path_provider/path_provider.dart';
 
 class ImageAttachmentService {
-  ImageAttachmentService({ImagePicker? picker}) : _picker = picker ?? ImagePicker();
+  ImageAttachmentService({ImagePicker? picker})
+    : _picker = picker ?? ImagePicker();
 
   final ImagePicker _picker;
 
@@ -19,8 +20,11 @@ class ImageAttachmentService {
     if (picked == null) return null;
 
     final directory = await getApplicationDocumentsDirectory();
-    final extension = picked.path.contains('.') ? picked.path.split('.').last : 'jpg';
-    final fileName = 'attachment_${DateTime.now().microsecondsSinceEpoch}.$extension';
+    final extension = picked.path.contains('.')
+        ? picked.path.split('.').last
+        : 'jpg';
+    final fileName =
+        'attachment_${DateTime.now().microsecondsSinceEpoch}.$extension';
     final target = File('${directory.path}/$fileName');
     await File(picked.path).copy(target.path);
     return target.path;
@@ -28,7 +32,8 @@ class ImageAttachmentService {
 
   Future<String> storeBytes(Uint8List bytes, {String extension = 'jpg'}) async {
     final directory = await getApplicationDocumentsDirectory();
-    final fileName = 'attachment_${DateTime.now().microsecondsSinceEpoch}.$extension';
+    final fileName =
+        'attachment_${DateTime.now().microsecondsSinceEpoch}.$extension';
     final target = File('${directory.path}/$fileName');
     await target.writeAsBytes(bytes, flush: true);
     return target.path;

@@ -16,12 +16,19 @@ import 'services/communication_service.dart';
 import 'services/data_transfer_service.dart';
 import 'services/reminder_service.dart';
 import 'services/image_feed_service.dart';
+import 'services/advanced_finance_service.dart';
+import 'services/report_service.dart';
 import 'models/reminder_models.dart';
+import 'models/advanced_finance_models.dart';
 import 'widgets/reminder_settings_sheet.dart';
 import 'widgets/dashboard_image_rail.dart';
 import 'widgets/data_tools_sheet.dart';
+import 'widgets/advanced_finance_sheets.dart';
+import 'widgets/analytics_sheet.dart';
+import 'widgets/expense_filter_dialog.dart';
 
 import 'package:share_plus/share_plus.dart';
+import 'package:home_widget/home_widget.dart';
 
 const _indigo = Color(0xFFF54E00); // Cursor Orange
 const _indigoDark = Color(0xFFD04200); // Cursor Orange active
@@ -32,6 +39,10 @@ const _slate = Color(0xFF5A5852);
 const _lightBackground = Color(0xFFF7F7F4); // warm cream canvas
 const _darkBackground = Color(0xFF26251E);
 const _darkSurface = Color(0xFF333129);
+
+bool _privacyMode = false;
+
+String formatCurrency(double value) => _formatCurrency(value);
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -325,17 +336,26 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   final _transferService = DataTransferService();
   final _reminderStorage = ReminderStorage();
   final _imageFeedService = ImageFeedService();
+  final _advancedService = AdvancedFinanceService();
+  final _reportService = ReportService();
   List<ExpenseEntry> _expenses = <ExpenseEntry>[];
   List<DebtEntry> _debts = <DebtEntry>[];
   List<ReminderSchedule> _reminders = <ReminderSchedule>[];
+  List<MoneyAccount> _accounts = <MoneyAccount>[];
+  List<BudgetLimit> _budgets = <BudgetLimit>[];
+  List<RecurringExpense> _recurring = <RecurringExpense>[];
+  ExpenseFilter _expenseFilter = const ExpenseFilter();
   List<String> _dashboardImageUrls = const <String>[];
   bool _imageFeedLoading = false;
   bool _imageFeedFromCache = false;
+  bool _privacyEnabled = false;
   double _pocketMoney = 0;
   FinanceTab _tab = FinanceTab.overview;
   bool _isLoading = true;
   final _debtSearchController = TextEditingController();
+  final _expenseSearchController = TextEditingController();
   String _debtQuery = '';
+  String _expenseQuery = '';
 
   @override
   void initState() {
@@ -347,6 +367,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   @override
   void dispose() {
     _debtSearchController.dispose();
+    _expenseSearchController.dispose();
     super.dispose();
   }
 
@@ -355,6 +376,19 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     final debts = await _storage.loadDebts();
     final pocketMoney = await _storage.loadPocketMoney();
     final reminders = await _reminderStorage.load();
+    final accounts = await _storage.loadAccounts();
+    final budgets = await _storage.loadBudgets();
+    final recurring = await _storage.loadRecurringExpenses();
+    final privacy = await _storage.loadPrivacyMode();
+    final generated = _advancedService.materializeDueRecurring(
+      recurring: recurring,
+      now: DateTime.now(),
+      existing: expenses,
+    );
+    if (generated.isNotEmpty) {
+      expenses.addAll(generated);
+      await _storage.saveExpenses(expenses);
+    }
     try {
       await ReminderService.instance.syncAll(reminders);
     } catch (_) {
@@ -366,8 +400,90 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       _debts = debts..sort((a, b) => b.date.compareTo(a.date));
       _pocketMoney = pocketMoney;
       _reminders = reminders;
+      _accounts = accounts;
+      _budgets = budgets;
+      _recurring = recurring;
+      _privacyEnabled = privacy;
+      _privacyMode = privacy;
       _isLoading = false;
     });
+    await _syncHomeWidget();
+  }
+
+  Future<void> _syncHomeWidget() async {
+    final now = DateTime.now();
+    final monthExpense = _expenses
+        .where(
+          (entry) =>
+              entry.date.year == now.year && entry.date.month == now.month,
+        )
+        .fold(0.0, (sum, entry) => sum + entry.amount);
+    final totalBalance = _accounts
+        .where((item) => !item.isArchived)
+        .fold(0.0, (sum, item) => sum + item.balance);
+    try {
+      await HomeWidget.saveWidgetData<String>(
+        'month_expense',
+        _formatCurrency(monthExpense),
+      );
+      await HomeWidget.saveWidgetData<String>(
+        'pocket_money',
+        _formatCurrency(_remainingPocketMoney),
+      );
+      await HomeWidget.saveWidgetData<String>(
+        'total_balance',
+        _formatCurrency(totalBalance),
+      );
+      await HomeWidget.updateWidget(name: 'FinanceWidgetProvider');
+    } catch (_) {
+      // Widgets are optional; storage and dashboard must remain functional without them.
+    }
+  }
+
+  List<ExpenseEntry> get _filteredExpenses {
+    final filter = _expenseFilter;
+    final query = filter.query.trim().toLowerCase();
+    return _expenses.where((entry) {
+      final haystack =
+          '${entry.title} ${entry.note} ${categoryLabel(entry.category)}'
+              .toLowerCase();
+      if (query.isNotEmpty && !haystack.contains(query)) return false;
+      if (filter.category != null && entry.category != filter.category)
+        return false;
+      if (filter.accountId != null && entry.accountId != filter.accountId)
+        return false;
+      if (filter.from != null && entry.date.isBefore(filter.from!))
+        return false;
+      if (filter.to != null &&
+          entry.date.isAfter(
+            DateTime(
+              filter.to!.year,
+              filter.to!.month,
+              filter.to!.day,
+              23,
+              59,
+              59,
+            ),
+          ))
+        return false;
+      if (filter.minimum != null && entry.amount < filter.minimum!)
+        return false;
+      if (filter.maximum != null && entry.amount > filter.maximum!)
+        return false;
+      return true;
+    }).toList();
+  }
+
+  bool get _expenseFilterIsActive => _expenseFilter.isActive;
+
+  Future<void> _openExpenseFilters() async {
+    final result = await showDialog<ExpenseFilter>(
+      context: context,
+      builder: (_) =>
+          ExpenseFilterDialog(filter: _expenseFilter, accounts: _accounts),
+    );
+    if (result == null || !mounted) return;
+    setState(() => _expenseFilter = result.copyWith(query: _expenseQuery));
   }
 
   double get _totalExpense =>
@@ -395,6 +511,136 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   Future<void> _saveDebts() => _storage.saveDebts(_debts);
   Future<void> _savePocketMoney() => _storage.savePocketMoney(_pocketMoney);
   Future<void> _saveReminders() => _reminderStorage.save(_reminders);
+  Future<void> _saveAccounts() => _storage.saveAccounts(_accounts);
+  Future<void> _saveBudgets() => _storage.saveBudgets(_budgets);
+  Future<void> _saveRecurring() => _storage.saveRecurringExpenses(_recurring);
+
+  Future<void> _openBudgets() async {
+    final updated = await showModalBottomSheet<List<BudgetLimit>>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => BudgetSettingsSheet(initialBudgets: _budgets),
+    );
+    if (updated == null || !mounted) return;
+    setState(() => _budgets = updated);
+    await _saveBudgets();
+    _notifyBudgetStatus(updated);
+  }
+
+  Future<void> _openAccounts() async {
+    final updated = await showModalBottomSheet<List<MoneyAccount>>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => AccountSettingsSheet(initialAccounts: _accounts),
+    );
+    if (updated == null || !mounted) return;
+    setState(() => _accounts = updated);
+    await _saveAccounts();
+    await _syncHomeWidget();
+  }
+
+  Future<void> _openRecurring() async {
+    final updated = await showModalBottomSheet<List<RecurringExpense>>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) =>
+          RecurringSettingsSheet(initialItems: _recurring, accounts: _accounts),
+    );
+    if (updated == null || !mounted) return;
+    setState(() => _recurring = updated);
+    await _saveRecurring();
+    await ReminderService.instance.syncAll(_reminders);
+  }
+
+  Future<void> _openAnalytics() async {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => AnalyticsSheet(
+        expenses: _expenses,
+        budgets: _advancedService.budgetStatuses(
+          budgets: _budgets,
+          expenses: _expenses,
+        ),
+        insights: _advancedService.unusualExpenses(_expenses),
+      ),
+    );
+  }
+
+  Future<void> _sharePdf() async {
+    try {
+      await _reportService.sharePdf(
+        expenses: _expenses,
+        debts: _debts,
+        accounts: _accounts,
+        budgets: _budgets,
+        insights: _advancedService.unusualExpenses(_expenses),
+        pocketMoney: _pocketMoney,
+      );
+    } catch (error) {
+      if (mounted)
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('PDF gagal dibuat: $error')));
+    }
+  }
+
+  Future<void> _togglePrivacy() async {
+    setState(() {
+      _privacyEnabled = !_privacyEnabled;
+      _privacyMode = _privacyEnabled;
+    });
+    await _storage.savePrivacyMode(_privacyEnabled);
+  }
+
+  void _notifyBudgetStatus(List<BudgetLimit> budgets) {
+    final statuses = _advancedService.budgetStatuses(
+      budgets: budgets,
+      expenses: _expenses,
+    );
+    final alert = statuses.firstWhere(
+      (item) => item.isExceeded || item.isAlert,
+      orElse: () => BudgetStatus(
+        limit: BudgetLimit(
+          id: '',
+          category: ExpenseCategory.other,
+          monthlyLimit: 0,
+          createdAt: DateTime(2000),
+        ),
+        spent: 0,
+        percent: 0,
+      ),
+    );
+    if (alert.limit.id.isNotEmpty && mounted)
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            alert.isExceeded
+                ? 'Anggaran ${categoryLabel(alert.limit.category)} sudah terlampaui.'
+                : 'Anggaran ${categoryLabel(alert.limit.category)} mendekati batas ${alert.limit.alertPercent}%.',
+          ),
+        ),
+      );
+  }
 
   Future<void> _openReminders() async {
     final updated = await showModalBottomSheet<List<ReminderSchedule>>(
@@ -467,6 +713,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     if (value == null || value < 0 || !mounted) return;
     setState(() => _pocketMoney = value);
     await _savePocketMoney();
+    await _syncHomeWidget();
   }
 
   void _showExpenseForm({ExpenseEntry? entry}) async {
@@ -475,8 +722,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       isScrollControlled: true,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) =>
-          ExpenseFormSheet(entry: entry, imageService: _imageService),
+      builder: (_) => ExpenseFormSheet(
+        entry: entry,
+        imageService: _imageService,
+        accounts: _accounts,
+      ),
     );
     if (result == null) return;
     setState(() {
@@ -488,7 +738,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         _expenses.sort((a, b) => b.date.compareTo(a.date));
       }
     });
-    _saveExpenses();
+    await _saveExpenses();
+    await _syncHomeWidget();
   }
 
   void _showDebtForm({DebtEntry? entry}) async {
@@ -562,6 +813,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         debts: _debts,
         pocketMoney: _pocketMoney,
         reminders: _reminders,
+        accounts: _accounts,
+        budgets: _budgets,
+        recurring: _recurring,
+        privacyMode: _privacyEnabled,
       );
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -588,6 +843,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         debts: _debts,
         pocketMoney: _pocketMoney,
         reminders: _reminders,
+        accounts: _accounts,
+        budgets: _budgets,
+        recurring: _recurring,
+        privacyMode: _privacyEnabled,
       );
       if (!mounted) return;
       final confirmed = await showDialog<bool>(
@@ -656,6 +915,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           _debts = [...payload.debts];
           _pocketMoney = payload.pocketMoney;
           _reminders = [...payload.reminders];
+          _accounts = [...payload.accounts];
+          _budgets = [...payload.budgets];
+          _recurring = [...payload.recurring];
+          _privacyEnabled = payload.privacyMode;
+          _privacyMode = _privacyEnabled;
         } else {
           final expenses = {for (final item in _expenses) item.id: item};
           final debts = {for (final item in _debts) item.id: item};
@@ -670,6 +934,16 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           if (payload.pocketMoney > 0) _pocketMoney = payload.pocketMoney;
           if (payload.reminders.isNotEmpty)
             _reminders = [..._reminders, ...payload.reminders];
+          if (payload.accounts.isNotEmpty)
+            _accounts = [..._accounts, ...payload.accounts];
+          if (payload.budgets.isNotEmpty)
+            _budgets = [..._budgets, ...payload.budgets];
+          if (payload.recurring.isNotEmpty)
+            _recurring = [..._recurring, ...payload.recurring];
+          if (payload.privacyMode) {
+            _privacyEnabled = true;
+            _privacyMode = true;
+          }
         }
         _expenses.sort((a, b) => b.date.compareTo(a.date));
         _debts.sort((a, b) => b.date.compareTo(a.date));
@@ -678,6 +952,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       await _saveDebts();
       await _savePocketMoney();
       await _saveReminders();
+      await _saveAccounts();
+      await _saveBudgets();
+      await _saveRecurring();
+      await _storage.savePrivacyMode(_privacyEnabled);
       try {
         await ReminderService.instance.syncAll(_reminders);
       } catch (_) {
@@ -857,6 +1135,13 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                 onDrive: _backupToGoogleDrive,
                 onRestore: _restoreBackup,
                 onSpreadsheet: _shareSpreadsheet,
+                onPdf: _sharePdf,
+                onBudgets: _openBudgets,
+                onAccounts: _openAccounts,
+                onRecurring: _openRecurring,
+                onAnalytics: _openAnalytics,
+                onPrivacy: _togglePrivacy,
+                privacyEnabled: _privacyEnabled,
               ),
             ),
             icon: const Icon(Icons.more_horiz_rounded),
@@ -967,6 +1252,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           ),
           const SizedBox(height: 14),
           _buildBalanceCard(colors),
+          const SizedBox(height: 14),
+          _buildAccountStrip(colors),
+          const SizedBox(height: 14),
+          _buildBudgetStrip(colors),
           const SizedBox(height: 18),
           Row(
             children: [
@@ -1109,6 +1398,155 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     );
   }
 
+  Widget _buildAccountStrip(ColorScheme colors) {
+    final active = _accounts.where((item) => !item.isArchived).toList();
+    final total = active.fold(0.0, (sum, item) => sum + item.balance);
+    return Card(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: _openAccounts,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 13, 10, 13),
+          child: Row(
+            children: [
+              Icon(
+                Icons.account_balance_wallet_outlined,
+                color: colors.primary,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Saldo semua akun',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: colors.onSurface.withValues(alpha: 0.62),
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      _formatCurrency(total),
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Text(
+                '${active.length} akun',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: colors.onSurface.withValues(alpha: 0.58),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                Icons.chevron_right_rounded,
+                color: colors.onSurface.withValues(alpha: 0.4),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildBudgetStrip(ColorScheme colors) {
+    final statuses = _advancedService.budgetStatuses(
+      budgets: _budgets,
+      expenses: _expenses,
+    );
+    if (statuses.isEmpty) {
+      return InkWell(
+        onTap: _openBudgets,
+        borderRadius: BorderRadius.circular(12),
+        child: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: colors.primary.withValues(alpha: 0.08),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: colors.primary.withValues(alpha: 0.18)),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.add_chart_rounded, color: colors.primary),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  'Atur anggaran bulanan agar pengeluaran lebih terarah.',
+                  style: TextStyle(
+                    color: colors.onSurface,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const Icon(Icons.chevron_right_rounded),
+            ],
+          ),
+        ),
+      );
+    }
+    final status = statuses.first;
+    final progressColor = status.isExceeded
+        ? colors.error
+        : status.isAlert
+        ? Colors.orange
+        : colors.primary;
+    return Card(
+      child: InkWell(
+        onTap: _openBudgets,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Anggaran ${categoryLabel(status.limit.category)}',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                  Text(
+                    '${status.percent.toStringAsFixed(0)}%',
+                    style: TextStyle(
+                      color: progressColor,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              LinearProgressIndicator(
+                value: (status.percent / 100).clamp(0, 1),
+                minHeight: 8,
+                borderRadius: BorderRadius.circular(99),
+                color: progressColor,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                status.isExceeded
+                    ? 'Melebihi ${_formatCurrency(status.remaining.abs())}'
+                    : 'Sisa ${_formatCurrency(status.remaining)}',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: colors.onSurface.withValues(alpha: 0.62),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildBalanceCard(ColorScheme colors) {
     final today = DateTime.now();
     final thisMonth = _expenses
@@ -1215,23 +1653,65 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   }
 
   Widget _buildExpenseList({required Key key}) {
+    final filtered = _filteredExpenses;
     return ListView(
       key: key,
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 108),
       children: [
         _PageHeading(
           title: 'Riwayat pengeluaran',
-          subtitle: '${_expenses.length} transaksi tercatat',
+          subtitle:
+              '${filtered.length} dari ${_expenses.length} transaksi tercatat',
         ),
-        const SizedBox(height: 18),
+        const SizedBox(height: 14),
+        Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _expenseSearchController,
+                onChanged: (value) => setState(() => _expenseQuery = value),
+                decoration: InputDecoration(
+                  labelText: 'Cari pengeluaran',
+                  hintText: 'Judul, catatan, atau kategori',
+                  prefixIcon: const Icon(Icons.search_rounded),
+                  suffixIcon: _expenseQuery.isEmpty
+                      ? null
+                      : IconButton(
+                          onPressed: () {
+                            _expenseSearchController.clear();
+                            setState(() => _expenseQuery = '');
+                          },
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            IconButton.filledTonal(
+              onPressed: _openExpenseFilters,
+              tooltip: 'Filter lanjutan',
+              icon: Badge(
+                isLabelVisible: _expenseFilterIsActive,
+                child: const Icon(Icons.tune_rounded),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
         if (_expenses.isEmpty)
           _buildEmptyCard(
             'Belum ada transaksi',
             'Tekan tombol di bawah untuk mencatat pengeluaran.',
             Icons.receipt_long_outlined,
           )
+        else if (filtered.isEmpty)
+          _buildEmptyCard(
+            'Tidak ada hasil',
+            'Coba kata kunci atau filter yang berbeda.',
+            Icons.search_off_rounded,
+          )
         else
-          ..._expenses.map(
+          ...filtered.map(
             (entry) => Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: _ExpenseTile(
@@ -2026,9 +2506,15 @@ class _CategoryIcon extends StatelessWidget {
 }
 
 class ExpenseFormSheet extends StatefulWidget {
-  const ExpenseFormSheet({super.key, this.entry, required this.imageService});
+  const ExpenseFormSheet({
+    super.key,
+    this.entry,
+    required this.imageService,
+    required this.accounts,
+  });
   final ExpenseEntry? entry;
   final ImageAttachmentService imageService;
+  final List<MoneyAccount> accounts;
 
   @override
   State<ExpenseFormSheet> createState() => _ExpenseFormSheetState();
@@ -2041,6 +2527,7 @@ class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
   late ExpenseCategory _category;
   late DateTime _date;
   String? _imagePath;
+  String? _accountId;
   bool _saving = false;
 
   @override
@@ -2054,6 +2541,7 @@ class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
     _category = widget.entry?.category ?? ExpenseCategory.food;
     _date = widget.entry?.date ?? DateTime.now();
     _imagePath = widget.entry?.imagePath;
+    _accountId = widget.entry?.accountId;
   }
 
   @override
@@ -2121,6 +2609,8 @@ class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
         date: _date,
         note: _note.text.trim(),
         imagePath: _imagePath,
+        accountId: _accountId,
+        recurringId: widget.entry?.recurringId,
         createdAt: widget.entry?.createdAt ?? DateTime.now(),
       ),
     );
@@ -2189,6 +2679,30 @@ class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
               ),
             ],
           ),
+          if (widget.accounts.isNotEmpty) ...[
+            const SizedBox(height: 13),
+            DropdownButtonFormField<String>(
+              initialValue: _accountId,
+              decoration: const InputDecoration(
+                labelText: 'Akun sumber (opsional)',
+              ),
+              items: [
+                const DropdownMenuItem<String>(
+                  value: null,
+                  child: Text('Tidak ditentukan'),
+                ),
+                ...widget.accounts
+                    .where((item) => !item.isArchived)
+                    .map(
+                      (item) => DropdownMenuItem(
+                        value: item.id,
+                        child: Text(item.name),
+                      ),
+                    ),
+              ],
+              onChanged: (value) => setState(() => _accountId = value),
+            ),
+          ],
           const SizedBox(height: 13),
           TextField(
             controller: _note,
@@ -3365,7 +3879,8 @@ Future<String?> _pickEditStoreImage(
   return editedPath;
 }
 
-String _formatCurrency(double value) => 'Rp ${_formatNumber(value)}';
+String _formatCurrency(double value) =>
+    _privacyMode ? '••••••' : 'Rp ${_formatNumber(value)}';
 String _formatNumber(double value) {
   final fixed = value.round().toString();
   return fixed.replaceAllMapped(

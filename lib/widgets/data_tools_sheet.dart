@@ -7,12 +7,26 @@ class DataToolsSheet extends StatelessWidget {
     required this.onDrive,
     required this.onRestore,
     required this.onSpreadsheet,
+    required this.onPdf,
+    required this.onBudgets,
+    required this.onAccounts,
+    required this.onRecurring,
+    required this.onAnalytics,
+    required this.onPrivacy,
+    required this.privacyEnabled,
   });
 
   final VoidCallback onBackup;
   final VoidCallback onDrive;
   final VoidCallback onRestore;
   final VoidCallback onSpreadsheet;
+  final VoidCallback onPdf;
+  final VoidCallback onBudgets;
+  final VoidCallback onAccounts;
+  final VoidCallback onRecurring;
+  final VoidCallback onAnalytics;
+  final VoidCallback onPrivacy;
+  final bool privacyEnabled;
 
   @override
   Widget build(BuildContext context) {
@@ -65,6 +79,53 @@ class DataToolsSheet extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 14),
+            _ActionTile(
+              icon: Icons.analytics_outlined,
+              color: colors.primary,
+              title: 'Analisis keuangan',
+              subtitle: 'Grafik kategori, tren, dan anomali',
+              onTap: onAnalytics,
+            ),
+            _ActionTile(
+              icon: Icons.account_balance_wallet_outlined,
+              color: colors.primary,
+              title: 'Akun dan dompet',
+              subtitle: 'Tunai, bank, kartu, dan e-wallet',
+              onTap: onAccounts,
+            ),
+            _ActionTile(
+              icon: Icons.pie_chart_outline_rounded,
+              color: const Color(0xFFB86E21),
+              title: 'Anggaran bulanan',
+              subtitle: 'Batas kategori dan peringatan',
+              onTap: onBudgets,
+            ),
+            _ActionTile(
+              icon: Icons.autorenew_rounded,
+              color: const Color(0xFF2E7D5B),
+              title: 'Transaksi berulang',
+              subtitle: 'Tagihan nyata saat jatuh tempo',
+              onTap: onRecurring,
+            ),
+            _ActionTile(
+              icon: Icons.picture_as_pdf_outlined,
+              color: const Color(0xFFB34242),
+              title: 'Bagikan laporan PDF',
+              subtitle: 'Laporan profesional bulan berjalan',
+              onTap: onPdf,
+            ),
+            _ActionTile(
+              icon: privacyEnabled
+                  ? Icons.visibility_outlined
+                  : Icons.visibility_off_outlined,
+              color: const Color(0xFF5E5A9A),
+              title: privacyEnabled
+                  ? 'Tampilkan nominal'
+                  : 'Sembunyikan nominal',
+              subtitle: 'Mode privasi dashboard',
+              onTap: onPrivacy,
+            ),
+            const Divider(height: 18),
             _ActionTile(
               icon: Icons.phone_android_rounded,
               color: colors.primary,
