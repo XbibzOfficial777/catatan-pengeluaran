@@ -45,9 +45,10 @@ class DataTransferService {
   final BackupIntegrityService _integrity;
 
   Future<RestorePayload?> pickAndRestore() async {
+    // Android cannot resolve a MIME type for the custom .bibzcup extension.
+    // Pick any file, then enforce the extension before reading the archive.
     final picked = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['bibzcup'],
+      type: FileType.any,
       withData: false,
     );
     if (picked == null || picked.files.isEmpty || picked.files.first.path == null) {
