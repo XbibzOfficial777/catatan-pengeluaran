@@ -494,6 +494,46 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     setState(() => _expenseFilter = result.copyWith(query: _expenseQuery));
   }
 
+  List<MoneyAccount> _deduplicateAccounts(
+    Iterable<MoneyAccount> accounts, {
+    Map<String, String>? idMap,
+  }) {
+    final canonical = <String, MoneyAccount>{};
+    for (final account in accounts) {
+      final key = normalizeMoneyAccountName(account.name);
+      final existing = canonical[key];
+      if (existing == null) {
+        canonical[key] = account;
+        idMap?[account.id] = account.id;
+      } else {
+        idMap?[account.id] = existing.id;
+      }
+    }
+    return canonical.values.toList();
+  }
+
+  List<ExpenseEntry> _remapExpenseAccounts(
+    Iterable<ExpenseEntry> expenses,
+    Map<String, String> idMap,
+  ) => expenses
+      .map(
+        (entry) => entry.accountId != null && idMap[entry.accountId] != null
+            ? entry.copyWith(accountId: idMap[entry.accountId])
+            : entry,
+      )
+      .toList();
+
+  List<RecurringExpense> _remapRecurringAccounts(
+    Iterable<RecurringExpense> items,
+    Map<String, String> idMap,
+  ) => items
+      .map(
+        (item) => item.accountId != null && idMap[item.accountId] != null
+            ? item.copyWith(accountId: idMap[item.accountId])
+            : item,
+      )
+      .toList();
+
   double get _totalExpense =>
       _expenses.fold(0, (sum, item) => sum + item.amount);
   double get _pocketMoneyExpense => _expenses
@@ -975,16 +1015,25 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       if (mode == null) return;
       setState(() {
         if (mode == RestoreMode.replace) {
-          _expenses = [...payload.expenses];
+          final accountIdMap = <String, String>{};
+          _accounts = _deduplicateAccounts(
+            payload.accounts,
+            idMap: accountIdMap,
+          );
+          _expenses = _remapExpenseAccounts(payload.expenses, accountIdMap);
           _debts = [...payload.debts];
           _pocketMoney = payload.pocketMoney;
           _reminders = [...payload.reminders];
-          _accounts = [...payload.accounts];
           _budgets = [...payload.budgets];
-          _recurring = [...payload.recurring];
+          _recurring = _remapRecurringAccounts(payload.recurring, accountIdMap);
           _privacyEnabled = payload.privacyMode;
           _privacyMode = _privacyEnabled;
         } else {
+          final accountIdMap = <String, String>{};
+          _accounts = _deduplicateAccounts([
+            ..._accounts,
+            ...payload.accounts,
+          ], idMap: accountIdMap);
           final expenses = {for (final item in _expenses) item.id: item};
           final debts = {for (final item in _debts) item.id: item};
           for (final item in payload.expenses) {
@@ -993,17 +1042,18 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           for (final item in payload.debts) {
             debts[item.id] = item;
           }
-          _expenses = expenses.values.toList();
+          _expenses = _remapExpenseAccounts(expenses.values, accountIdMap);
           _debts = debts.values.toList();
           if (payload.pocketMoney > 0) _pocketMoney = payload.pocketMoney;
           if (payload.reminders.isNotEmpty)
             _reminders = [..._reminders, ...payload.reminders];
-          if (payload.accounts.isNotEmpty)
-            _accounts = [..._accounts, ...payload.accounts];
           if (payload.budgets.isNotEmpty)
             _budgets = [..._budgets, ...payload.budgets];
           if (payload.recurring.isNotEmpty)
-            _recurring = [..._recurring, ...payload.recurring];
+            _recurring = _remapRecurringAccounts([
+              ..._recurring,
+              ...payload.recurring,
+            ], accountIdMap);
           if (payload.privacyMode) {
             _privacyEnabled = true;
             _privacyMode = true;

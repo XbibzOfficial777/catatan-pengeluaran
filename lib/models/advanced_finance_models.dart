@@ -2,6 +2,9 @@ import 'finance_models.dart';
 
 enum MoneyAccountType { cash, bank, ewallet, card }
 
+String normalizeMoneyAccountName(String value) =>
+    value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+
 class MoneyAccount {
   const MoneyAccount({
     required this.id,

@@ -173,9 +173,14 @@ class _AccountSettingsSheetState extends State<AccountSettingsSheet> {
         builder: (_) => AccountTransitionSplash(account: account),
       );
     }
+    final existingNames = _items
+        .where((item) => item.id != account?.id)
+        .map((item) => normalizeMoneyAccountName(item.name))
+        .toSet();
     final result = await showDialog<MoneyAccount>(
       context: context,
-      builder: (_) => AccountEditorDialog(account: account),
+      builder: (_) =>
+          AccountEditorDialog(account: account, existingNames: existingNames),
     );
     if (result == null || !mounted) return;
     setState(() {
@@ -790,8 +795,13 @@ class _BudgetEditorDialogState extends State<BudgetEditorDialog> {
 }
 
 class AccountEditorDialog extends StatefulWidget {
-  const AccountEditorDialog({super.key, this.account});
+  const AccountEditorDialog({
+    super.key,
+    this.account,
+    this.existingNames = const <String>{},
+  });
   final MoneyAccount? account;
+  final Set<String> existingNames;
   @override
   State<AccountEditorDialog> createState() => _AccountEditorDialogState();
 }
@@ -801,6 +811,7 @@ class _AccountEditorDialogState extends State<AccountEditorDialog> {
   late final TextEditingController _balance;
   late MoneyAccountType _type;
   late String _brand;
+  String? _nameError;
   @override
   void initState() {
     super.initState();
@@ -829,9 +840,10 @@ class _AccountEditorDialogState extends State<AccountEditorDialog> {
           children: [
             TextField(
               controller: _name,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 labelText: 'Nama akun',
                 hintText: 'Contoh: GoPay utama',
+                errorText: _nameError,
               ),
             ),
             const SizedBox(height: 12),
@@ -898,7 +910,16 @@ class _AccountEditorDialogState extends State<AccountEditorDialog> {
         FilledButton(
           onPressed: () {
             final name = _name.text.trim();
-            if (name.isEmpty) return;
+            if (name.isEmpty) {
+              setState(() => _nameError = 'Nama akun wajib diisi.');
+              return;
+            }
+            if (widget.existingNames.contains(
+              normalizeMoneyAccountName(name),
+            )) {
+              setState(() => _nameError = 'Nama akun sudah digunakan.');
+              return;
+            }
             final old = widget.account;
             Navigator.pop(
               context,
