@@ -44,6 +44,7 @@ class ExpenseEntry {
     String? imagePath,
     bool clearImage = false,
     String? accountId,
+    bool clearAccount = false,
     String? recurringId,
   }) {
     return ExpenseEntry(
@@ -54,7 +55,7 @@ class ExpenseEntry {
       date: date ?? this.date,
       note: note ?? this.note,
       imagePath: clearImage ? null : (imagePath ?? this.imagePath),
-      accountId: accountId ?? this.accountId,
+      accountId: clearAccount ? null : accountId ?? this.accountId,
       recurringId: recurringId ?? this.recurringId,
       createdAt: createdAt,
     );

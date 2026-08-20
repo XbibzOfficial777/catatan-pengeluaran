@@ -61,64 +61,67 @@ class _ReminderSettingsSheetState extends State<ReminderSettingsSheet> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final maxHeight = MediaQuery.sizeOf(context).height * 0.86;
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Pengingat jadwal',
-                        style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Bayar, makan, ngopi, atau agenda lain sesuai kebiasaanmu.',
-                        style: TextStyle(
-                          color: colors.onSurface.withValues(alpha: 0.62),
-                          fontSize: 13,
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Pengingat jadwal',
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.w800),
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 4),
+                        Text(
+                          'Bayar, makan, ngopi, atau agenda lain sesuai kebiasaanmu.',
+                          style: TextStyle(
+                            color: colors.onSurface.withValues(alpha: 0.62),
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-                IconButton.filledTonal(
-                  onPressed: () => _addOrEdit(),
-                  icon: const Icon(Icons.add_rounded),
-                  tooltip: 'Tambah pengingat',
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            if (_reminders.isEmpty)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(18),
-                decoration: BoxDecoration(
-                  color: colors.surfaceContainerHighest.withValues(alpha: 0.45),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: const Text(
-                  'Belum ada pengingat. Tambahkan jadwal pertama untuk mendapatkan notifikasi lokal.',
-                ),
-              )
-            else
-              Flexible(
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  itemCount: _reminders.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (_, index) {
-                    final reminder = _reminders[index];
-                    return Card(
+                  IconButton.filledTonal(
+                    onPressed: () => _addOrEdit(),
+                    icon: const Icon(Icons.add_rounded),
+                    tooltip: 'Tambah pengingat',
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              if (_reminders.isEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color: colors.surfaceContainerHighest.withValues(
+                      alpha: 0.45,
+                    ),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Text(
+                    'Belum ada pengingat. Tambahkan jadwal pertama untuk mendapatkan notifikasi lokal.',
+                  ),
+                )
+              else
+                ..._reminders.asMap().entries.map((entry) {
+                  final index = entry.key;
+                  final reminder = entry.value;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Card(
                       child: ListTile(
                         contentPadding: const EdgeInsets.symmetric(
                           horizontal: 14,
@@ -156,9 +159,12 @@ class _ReminderSettingsSheetState extends State<ReminderSettingsSheet> {
                             ),
                             PopupMenuButton<String>(
                               onSelected: (value) {
-                                if (value == 'edit')
+                                if (value == 'edit') {
                                   _addOrEdit(reminder: reminder);
-                                if (value == 'delete') _delete(reminder);
+                                }
+                                if (value == 'delete') {
+                                  _delete(reminder);
+                                }
                               },
                               itemBuilder: (_) => const [
                                 PopupMenuItem(
@@ -174,20 +180,20 @@ class _ReminderSettingsSheetState extends State<ReminderSettingsSheet> {
                           ],
                         ),
                       ),
-                    );
-                  },
+                    ),
+                  );
+                }),
+              const SizedBox(height: 18),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: () => Navigator.pop(context, _reminders),
+                  icon: const Icon(Icons.notifications_active_outlined),
+                  label: const Text('Simpan dan aktifkan jadwal'),
                 ),
               ),
-            const SizedBox(height: 18),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton.icon(
-                onPressed: () => Navigator.pop(context, _reminders),
-                icon: const Icon(Icons.notifications_active_outlined),
-                label: const Text('Simpan dan aktifkan jadwal'),
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

@@ -540,6 +540,30 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     _notifyBudgetStatus(updated);
   }
 
+  Future<void> _openAccountDetail(MoneyAccount account) async {
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AccountTransitionSplash(account: account),
+    );
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => AccountDetailSheet(
+        account: account,
+        expenses: _expenses,
+        onEdit: _openAccounts,
+        onDelete: _openAccounts,
+      ),
+    );
+  }
+
   Future<void> _openAccounts() async {
     final updated = await showModalBottomSheet<List<MoneyAccount>>(
       context: context,
@@ -549,11 +573,40 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
       ),
-      builder: (_) => AccountSettingsSheet(initialAccounts: _accounts),
+      builder: (_) => AccountSettingsSheet(
+        initialAccounts: _accounts,
+        expenses: _expenses,
+        recurring: _recurring,
+      ),
     );
     if (updated == null || !mounted) return;
-    setState(() => _accounts = updated);
+    final previousIds = _accounts.map((item) => item.id).toSet();
+    final updatedIds = updated.map((item) => item.id).toSet();
+    final removedIds = previousIds.difference(updatedIds);
+    setState(() {
+      _accounts = updated;
+      if (removedIds.isNotEmpty) {
+        _expenses = _expenses
+            .map(
+              (entry) => removedIds.contains(entry.accountId)
+                  ? entry.copyWith(clearAccount: true)
+                  : entry,
+            )
+            .toList();
+        _recurring = _recurring
+            .map(
+              (item) => removedIds.contains(item.accountId)
+                  ? item.copyWith(clearAccount: true)
+                  : item,
+            )
+            .toList();
+      }
+    });
     await _saveAccounts();
+    if (removedIds.isNotEmpty) {
+      await _saveExpenses();
+      await _saveRecurring();
+    }
     await _syncHomeWidget();
   }
 
@@ -1138,6 +1191,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
               shape: const RoundedRectangleBorder(
                 borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
               ),
+              isScrollControlled: true,
               builder: (_) => DataToolsSheet(
                 onBackup: _createBackup,
                 onDrive: _backupToGoogleDrive,
@@ -1408,59 +1462,126 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
 
   Widget _buildAccountStrip(ColorScheme colors) {
     final active = _accounts.where((item) => !item.isArchived).toList();
-    final total = active.fold(0.0, (sum, item) => sum + item.balance);
-    return Card(
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: _openAccounts,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(14, 13, 10, 13),
-          child: Row(
-            children: [
-              Icon(
-                Icons.account_balance_wallet_outlined,
-                color: colors.primary,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Saldo per akun dan dompet',
+                style: Theme.of(context).textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w800),
               ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Saldo semua akun',
+            ),
+            TextButton.icon(
+              onPressed: _openAccounts,
+              icon: const Icon(Icons.tune_rounded, size: 17),
+              label: const Text('Kelola'),
+            ),
+          ],
+        ),
+        if (active.isEmpty)
+          InkWell(
+            onTap: _openAccounts,
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: colors.primary.withValues(alpha: 0.08),
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: colors.primary.withValues(alpha: 0.2),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(Icons.add_card_rounded, color: colors.primary),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Tambahkan bank atau e-wallet untuk melihat saldo terpisah.',
                       style: TextStyle(
-                        fontSize: 12,
-                        color: colors.onSurface.withValues(alpha: 0.62),
+                        color: colors.onSurface,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
-                    const SizedBox(height: 3),
-                    Text(
-                      _formatCurrency(total),
-                      style: const TextStyle(
-                        fontSize: 17,
-                        fontWeight: FontWeight.w800,
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          SizedBox(
+            height: 126,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              itemCount: active.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 10),
+              itemBuilder: (context, index) {
+                final account = active[index];
+                return SizedBox(
+                  width: 214,
+                  child: Card(
+                    child: InkWell(
+                      onTap: () => _openAccountDetail(account),
+                      borderRadius: BorderRadius.circular(12),
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                AccountBrandIcon(
+                                  brandKey: account.brandKey,
+                                  size: 28,
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    account.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const Spacer(),
+                            Text(
+                              account.type.name,
+                              style: TextStyle(
+                                color: colors.onSurface.withValues(alpha: 0.58),
+                                fontSize: 11,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              _privacyEnabled
+                                  ? '••••••'
+                                  : _formatCurrency(account.balance),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontWeight: FontWeight.w900,
+                                fontSize: 17,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
-                  ],
-                ),
-              ),
-              Text(
-                '${active.length} akun',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: colors.onSurface.withValues(alpha: 0.58),
-                ),
-              ),
-              const SizedBox(width: 4),
-              Icon(
-                Icons.chevron_right_rounded,
-                color: colors.onSurface.withValues(alpha: 0.4),
-              ),
-            ],
+                  ),
+                );
+              },
+            ),
           ),
-        ),
-      ),
+      ],
     );
   }
 

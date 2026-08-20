@@ -31,130 +31,134 @@ class DataToolsSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final maxHeight = MediaQuery.sizeOf(context).height * 0.86;
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 10, 20, 22),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 42,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: colors.outline,
-                  borderRadius: BorderRadius.circular(99),
-                ),
-              ),
-            ),
-            const SizedBox(height: 18),
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Data & laporan',
-                        style: Theme.of(context).textTheme.titleLarge
-                            ?.copyWith(fontWeight: FontWeight.w800),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        'Kelola backup dan ekspor tanpa memenuhi layar.',
-                        style: TextStyle(
-                          color: colors.onSurface.withValues(alpha: 0.62),
-                          fontSize: 13,
-                        ),
-                      ),
-                    ],
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxHeight),
+        child: SingleChildScrollView(
+          physics: const BouncingScrollPhysics(),
+          padding: const EdgeInsets.fromLTRB(20, 10, 20, 22),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 42,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: colors.outline,
+                    borderRadius: BorderRadius.circular(99),
                   ),
                 ),
-                Icon(
-                  Icons.auto_awesome_rounded,
-                  color: colors.primary,
-                  size: 22,
-                ),
-              ],
-            ),
-            const SizedBox(height: 14),
-            _ActionTile(
-              icon: Icons.analytics_outlined,
-              color: colors.primary,
-              title: 'Analisis keuangan',
-              subtitle: 'Grafik kategori, tren, dan anomali',
-              onTap: onAnalytics,
-            ),
-            _ActionTile(
-              icon: Icons.account_balance_wallet_outlined,
-              color: colors.primary,
-              title: 'Akun dan dompet',
-              subtitle: 'Tunai, bank, kartu, dan e-wallet',
-              onTap: onAccounts,
-            ),
-            _ActionTile(
-              icon: Icons.pie_chart_outline_rounded,
-              color: const Color(0xFFB86E21),
-              title: 'Anggaran bulanan',
-              subtitle: 'Batas kategori dan peringatan',
-              onTap: onBudgets,
-            ),
-            _ActionTile(
-              icon: Icons.autorenew_rounded,
-              color: const Color(0xFF2E7D5B),
-              title: 'Transaksi berulang',
-              subtitle: 'Tagihan nyata saat jatuh tempo',
-              onTap: onRecurring,
-            ),
-            _ActionTile(
-              icon: Icons.picture_as_pdf_outlined,
-              color: const Color(0xFFB34242),
-              title: 'Bagikan laporan PDF',
-              subtitle: 'Laporan profesional bulan berjalan',
-              onTap: onPdf,
-            ),
-            _ActionTile(
-              icon: privacyEnabled
-                  ? Icons.visibility_outlined
-                  : Icons.visibility_off_outlined,
-              color: const Color(0xFF5E5A9A),
-              title: privacyEnabled
-                  ? 'Tampilkan nominal'
-                  : 'Sembunyikan nominal',
-              subtitle: 'Mode privasi dashboard',
-              onTap: onPrivacy,
-            ),
-            const Divider(height: 18),
-            _ActionTile(
-              icon: Icons.phone_android_rounded,
-              color: colors.primary,
-              title: 'Backup ke perangkat',
-              subtitle: 'Simpan .bibzcup ke folder CatatBibz',
-              onTap: onBackup,
-            ),
-            _ActionTile(
-              icon: Icons.drive_file_move_outline,
-              color: const Color(0xFF2E7D5B),
-              title: 'Backup ke Google Drive',
-              subtitle: 'Gunakan menu berbagi yang aman',
-              onTap: onDrive,
-            ),
-            _ActionTile(
-              icon: Icons.restore_rounded,
-              color: const Color(0xFFB86E21),
-              title: 'Restore backup',
-              subtitle: 'Pulihkan hanya file .bibzcup valid',
-              onTap: onRestore,
-            ),
-            _ActionTile(
-              icon: Icons.table_view_rounded,
-              color: const Color(0xFF356AA5),
-              title: 'Share spreadsheet Excel',
-              subtitle: 'Laporan profesional siap dibagikan',
-              onTap: onSpreadsheet,
-            ),
-          ],
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Data & laporan',
+                          style: Theme.of(context).textTheme.titleLarge
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Kelola backup dan ekspor tanpa memenuhi layar.',
+                          style: TextStyle(
+                            color: colors.onSurface.withValues(alpha: 0.62),
+                            fontSize: 13,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.auto_awesome_rounded,
+                    color: colors.primary,
+                    size: 22,
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              _ActionTile(
+                icon: Icons.analytics_outlined,
+                color: colors.primary,
+                title: 'Analisis keuangan',
+                subtitle: 'Grafik kategori, tren, dan anomali',
+                onTap: onAnalytics,
+              ),
+              _ActionTile(
+                icon: Icons.account_balance_wallet_outlined,
+                color: colors.primary,
+                title: 'Akun dan dompet',
+                subtitle: 'Tunai, bank, kartu, dan e-wallet',
+                onTap: onAccounts,
+              ),
+              _ActionTile(
+                icon: Icons.pie_chart_outline_rounded,
+                color: const Color(0xFFB86E21),
+                title: 'Anggaran bulanan',
+                subtitle: 'Batas kategori dan peringatan',
+                onTap: onBudgets,
+              ),
+              _ActionTile(
+                icon: Icons.autorenew_rounded,
+                color: const Color(0xFF2E7D5B),
+                title: 'Transaksi berulang',
+                subtitle: 'Tagihan nyata saat jatuh tempo',
+                onTap: onRecurring,
+              ),
+              _ActionTile(
+                icon: Icons.picture_as_pdf_outlined,
+                color: const Color(0xFFB34242),
+                title: 'Bagikan laporan PDF',
+                subtitle: 'Laporan profesional bulan berjalan',
+                onTap: onPdf,
+              ),
+              _ActionTile(
+                icon: privacyEnabled
+                    ? Icons.visibility_outlined
+                    : Icons.visibility_off_outlined,
+                color: const Color(0xFF5E5A9A),
+                title: privacyEnabled
+                    ? 'Tampilkan nominal'
+                    : 'Sembunyikan nominal',
+                subtitle: 'Mode privasi dashboard',
+                onTap: onPrivacy,
+              ),
+              const Divider(height: 18),
+              _ActionTile(
+                icon: Icons.phone_android_rounded,
+                color: colors.primary,
+                title: 'Backup ke perangkat',
+                subtitle: 'Simpan .bibzcup ke folder CatatBibz',
+                onTap: onBackup,
+              ),
+              _ActionTile(
+                icon: Icons.drive_file_move_outline,
+                color: const Color(0xFF2E7D5B),
+                title: 'Backup ke Google Drive',
+                subtitle: 'Gunakan menu berbagi yang aman',
+                onTap: onDrive,
+              ),
+              _ActionTile(
+                icon: Icons.restore_rounded,
+                color: const Color(0xFFB86E21),
+                title: 'Restore backup',
+                subtitle: 'Pulihkan hanya file .bibzcup valid',
+                onTap: onRestore,
+              ),
+              _ActionTile(
+                icon: Icons.table_view_rounded,
+                color: const Color(0xFF356AA5),
+                title: 'Share spreadsheet Excel',
+                subtitle: 'Laporan profesional siap dibagikan',
+                onTap: onSpreadsheet,
+              ),
+            ],
+          ),
         ),
       ),
     );

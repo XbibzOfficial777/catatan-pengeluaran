@@ -143,14 +143,22 @@ class _BudgetSettingsSheetState extends State<BudgetSettingsSheet> {
 }
 
 class AccountSettingsSheet extends StatefulWidget {
-  const AccountSettingsSheet({super.key, required this.initialAccounts});
+  const AccountSettingsSheet({
+    super.key,
+    required this.initialAccounts,
+    required this.expenses,
+    required this.recurring,
+  });
   final List<MoneyAccount> initialAccounts;
+  final List<ExpenseEntry> expenses;
+  final List<RecurringExpense> recurring;
   @override
   State<AccountSettingsSheet> createState() => _AccountSettingsSheetState();
 }
 
 class _AccountSettingsSheetState extends State<AccountSettingsSheet> {
   late List<MoneyAccount> _items;
+
   @override
   void initState() {
     super.initState();
@@ -158,6 +166,13 @@ class _AccountSettingsSheetState extends State<AccountSettingsSheet> {
   }
 
   Future<void> _edit({MoneyAccount? account}) async {
+    if (account != null) {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => AccountTransitionSplash(account: account),
+      );
+    }
     final result = await showDialog<MoneyAccount>(
       context: context,
       builder: (_) => AccountEditorDialog(account: account),
@@ -191,12 +206,66 @@ class _AccountSettingsSheetState extends State<AccountSettingsSheet> {
         ],
       ),
     );
-    if (ok == true && mounted)
-      setState(
-        () => _items[_items.indexOf(account)] = account.copyWith(
-          isArchived: true,
+    if (ok == true && mounted) {
+      setState(() {
+        final index = _items.indexWhere((item) => item.id == account.id);
+        if (index != -1) {
+          _items[index] = account.copyWith(isArchived: true);
+        }
+      });
+    }
+  }
+
+  Future<void> _deletePermanent(MoneyAccount account) async {
+    final expenseCount = widget.expenses
+        .where((item) => item.accountId == account.id)
+        .length;
+    final recurringCount = widget.recurring
+        .where((item) => item.accountId == account.id)
+        .length;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text('Hapus ${account.name} permanen?'),
+        content: Text(
+          expenseCount + recurringCount == 0
+              ? 'Akun ini akan dihapus dari daftar akun.'
+              : 'Akun dihapus, tetapi $expenseCount transaksi dan $recurringCount transaksi berulang tetap disimpan tanpa akun.',
         ),
-      );
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Batal'),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.pop(context, true),
+            style: FilledButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Hapus permanen'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true && mounted) {
+      setState(() => _items.removeWhere((item) => item.id == account.id));
+    }
+  }
+
+  Future<void> _openDetail(MoneyAccount account) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => AccountDetailSheet(
+        account: account,
+        expenses: widget.expenses,
+        onEdit: () => _edit(account: account),
+        onDelete: () => _deletePermanent(account),
+      ),
+    );
   }
 
   @override
@@ -220,7 +289,8 @@ class _AccountSettingsSheetState extends State<AccountSettingsSheet> {
               .map(
                 (account) => Card(
                   child: ListTile(
-                    leading: _BrandIcon(brandKey: account.brandKey),
+                    onTap: () => _openDetail(account),
+                    leading: AccountBrandIcon(brandKey: account.brandKey),
                     title: Text(
                       account.name,
                       style: const TextStyle(fontWeight: FontWeight.w800),
@@ -229,15 +299,24 @@ class _AccountSettingsSheetState extends State<AccountSettingsSheet> {
                       '${account.type.name} • Saldo ${_currency(account.balance)}',
                     ),
                     trailing: PopupMenuButton<String>(
+                      tooltip: 'Kelola ${account.name}',
                       onSelected: (value) {
                         if (value == 'edit') _edit(account: account);
                         if (value == 'archive') _archive(account);
+                        if (value == 'delete') _deletePermanent(account);
                       },
                       itemBuilder: (_) => const [
-                        PopupMenuItem(value: 'edit', child: Text('Edit')),
+                        PopupMenuItem(
+                          value: 'edit',
+                          child: Text('Ganti akun/dompet'),
+                        ),
                         PopupMenuItem(
                           value: 'archive',
                           child: Text('Arsipkan'),
+                        ),
+                        PopupMenuItem(
+                          value: 'delete',
+                          child: Text('Hapus permanen'),
                         ),
                       ],
                     ),
@@ -247,15 +326,234 @@ class _AccountSettingsSheetState extends State<AccountSettingsSheet> {
           const SizedBox(height: 16),
           SizedBox(
             width: double.infinity,
-            child: FilledButton(
+            child: FilledButton.icon(
               onPressed: () => Navigator.pop(context, _items),
-              child: const Text('Simpan akun'),
+              icon: const Icon(Icons.check_rounded),
+              label: const Text('Simpan akun dan dompet'),
             ),
           ),
         ],
       ),
     );
   }
+}
+
+class AccountDetailSheet extends StatefulWidget {
+  const AccountDetailSheet({
+    super.key,
+    required this.account,
+    required this.expenses,
+    required this.onEdit,
+    required this.onDelete,
+  });
+  final MoneyAccount account;
+  final List<ExpenseEntry> expenses;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+
+  @override
+  State<AccountDetailSheet> createState() => _AccountDetailSheetState();
+}
+
+class _AccountDetailSheetState extends State<AccountDetailSheet>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 520),
+    )..forward();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final entries =
+        widget.expenses
+            .where((item) => item.accountId == widget.account.id)
+            .toList()
+          ..sort((a, b) => b.date.compareTo(a.date));
+    return _SheetFrame(
+      title: widget.account.name,
+      subtitle: 'Saldo dan riwayat akun ditampilkan terpisah.',
+      action: AccountBrandIcon(brandKey: widget.account.brandKey, size: 34),
+      child: FadeTransition(
+        opacity: CurvedAnimation(parent: _controller, curve: Curves.easeOut),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            ScaleTransition(
+              scale: Tween<double>(begin: 0.92, end: 1).animate(
+                CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
+              ),
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    colors: [
+                      colors.primary,
+                      colors.primary.withValues(alpha: 0.72),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Saldo ${widget.account.type.name}',
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.8),
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      _currency(widget.account.balance),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 28,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      widget.onEdit();
+                    },
+                    icon: const Icon(Icons.edit_outlined),
+                    label: const Text('Ganti'),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: FilledButton.tonalIcon(
+                    onPressed: () {
+                      Navigator.pop(context);
+                      widget.onDelete();
+                    },
+                    icon: const Icon(Icons.delete_outline_rounded),
+                    label: const Text('Hapus'),
+                    style: FilledButton.styleFrom(
+                      foregroundColor: colors.error,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 22),
+            Text(
+              'Riwayat pengeluaran',
+              style: Theme.of(context).textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w800),
+            ),
+            const SizedBox(height: 8),
+            if (entries.isEmpty)
+              const _EmptySetting(text: 'Belum ada pengeluaran dari akun ini.')
+            else
+              ...entries.map(
+                (entry) => ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: CircleAvatar(
+                    backgroundColor: colors.error.withValues(alpha: 0.12),
+                    child: Icon(
+                      Icons.receipt_long_outlined,
+                      color: colors.error,
+                    ),
+                  ),
+                  title: Text(entry.title),
+                  subtitle: Text(
+                    '${entry.date.day}/${entry.date.month}/${entry.date.year}',
+                  ),
+                  trailing: Text(
+                    _currency(entry.amount),
+                    style: const TextStyle(fontWeight: FontWeight.w800),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class AccountTransitionSplash extends StatefulWidget {
+  const AccountTransitionSplash({super.key, required this.account});
+  final MoneyAccount account;
+
+  @override
+  State<AccountTransitionSplash> createState() =>
+      _AccountTransitionSplashState();
+}
+
+class _AccountTransitionSplashState extends State<AccountTransitionSplash>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 520),
+    )..forward();
+    Future<void>.delayed(const Duration(milliseconds: 650), () {
+      if (mounted) Navigator.pop(context);
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Center(
+    child: ScaleTransition(
+      scale: CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              AccountBrandIcon(brandKey: widget.account.brandKey, size: 48),
+              const SizedBox(height: 12),
+              Text(
+                'Membuka ${widget.account.name}',
+                style: const TextStyle(fontWeight: FontWeight.w800),
+              ),
+              const SizedBox(height: 12),
+              const SizedBox(
+                width: 28,
+                height: 28,
+                child: CircularProgressIndicator(strokeWidth: 2.5),
+              ),
+            ],
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 class RecurringSettingsSheet extends StatefulWidget {
@@ -571,7 +869,7 @@ class _AccountEditorDialogState extends State<AccountEditorDialog> {
                       child: Row(
                         children: [
                           if (entry.key != 'wallet')
-                            _BrandIcon(brandKey: entry.key, size: 22),
+                            AccountBrandIcon(brandKey: entry.key, size: 22),
                           if (entry.key == 'wallet')
                             const Icon(
                               Icons.account_balance_wallet_outlined,
@@ -852,8 +1150,8 @@ class _EmptySetting extends StatelessWidget {
   );
 }
 
-class _BrandIcon extends StatelessWidget {
-  const _BrandIcon({required this.brandKey, this.size = 30});
+class AccountBrandIcon extends StatelessWidget {
+  const AccountBrandIcon({required this.brandKey, this.size = 30});
   final String brandKey;
   final double size;
   @override
