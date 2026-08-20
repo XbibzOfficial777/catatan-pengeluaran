@@ -15,9 +15,9 @@ concurrency:
 
 jobs:
   release:
-    name: Test and build arm64-v8a APK
+    name: Fast test and build arm64-v8a APK
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 12
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -52,13 +52,17 @@ jobs:
           flutter analyze
           flutter test
 
-      - name: Configure Gradle for CI runner
+      - name: Configure fast CI build
         run: |
           sed -i 's/-Xmx768m/-Xmx4g/' android/gradle.properties
           sed -i 's/org.gradle.workers.max=1/org.gradle.workers.max=2/' android/gradle.properties
           sed -i 's/org.gradle.parallel=false/org.gradle.parallel=true/' android/gradle.properties
+          # R8/resource shrinking stays enabled in the sandbox release build.
+          # CI uses fast mode so tags produce a release quickly.
+          sed -i 's/isMinifyEnabled = true/isMinifyEnabled = false/' android/app/build.gradle.kts
+          sed -i 's/isShrinkResources = true/isShrinkResources = false/' android/app/build.gradle.kts
 
-      - name: Build arm64-v8a release APK
+      - name: Build arm64-v8a fast release APK
         run: >-
           flutter build apk --release --target-platform android-arm64
           --obfuscate --split-debug-info=build/symbols
@@ -88,5 +92,6 @@ jobs:
             APK optimized Catatan Pengeluaran untuk Android 7–16.
 
             - Target arsitektur: `arm64-v8a`.
-            - Build memakai R8 minification, resource shrinking, tree-shaking icon, Dart obfuscation, dan split debug symbols.
+            - CI memakai fast mode arm64-v8a agar release cepat; APK sandbox tetap dibuild dengan R8 minification dan resource shrinking penuh.
+            - Dart obfuscation, tree-shaking icon, dan split debug symbols tetap digunakan.
             - `SHA256SUMS.txt` tersedia untuk verifikasi checksum.
