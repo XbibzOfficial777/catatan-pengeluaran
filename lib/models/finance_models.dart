@@ -21,6 +21,7 @@ class ExpenseEntry {
     this.imagePath,
     this.accountId,
     this.recurringId,
+    this.isSettled = false,
     required this.createdAt,
   });
 
@@ -33,6 +34,7 @@ class ExpenseEntry {
   final String? imagePath;
   final String? accountId;
   final String? recurringId;
+  final bool isSettled;
   final DateTime createdAt;
 
   ExpenseEntry copyWith({
@@ -46,6 +48,7 @@ class ExpenseEntry {
     String? accountId,
     bool clearAccount = false,
     String? recurringId,
+    bool? isSettled,
   }) {
     return ExpenseEntry(
       id: id,
@@ -57,6 +60,7 @@ class ExpenseEntry {
       imagePath: clearImage ? null : (imagePath ?? this.imagePath),
       accountId: clearAccount ? null : accountId ?? this.accountId,
       recurringId: recurringId ?? this.recurringId,
+      isSettled: isSettled ?? this.isSettled,
       createdAt: createdAt,
     );
   }
@@ -71,6 +75,7 @@ class ExpenseEntry {
     'imagePath': imagePath,
     'accountId': accountId,
     'recurringId': recurringId,
+    'isSettled': isSettled,
     'createdAt': createdAt.toIso8601String(),
   };
 
@@ -90,6 +95,9 @@ class ExpenseEntry {
       imagePath: json['imagePath'] as String?,
       accountId: json['accountId'] as String?,
       recurringId: json['recurringId'] as String?,
+      isSettled: json.containsKey('isSettled')
+          ? json['isSettled'] as bool? ?? false
+          : true,
       createdAt:
           DateTime.tryParse(json['createdAt'] as String? ?? '') ??
           DateTime.now(),

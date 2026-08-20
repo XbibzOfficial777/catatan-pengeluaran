@@ -5,6 +5,81 @@ enum MoneyAccountType { cash, bank, ewallet, card }
 String normalizeMoneyAccountName(String value) =>
     value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
 
+class SavingsGoal {
+  const SavingsGoal({
+    required this.id,
+    required this.name,
+    required this.targetAmount,
+    this.savedAmount = 0,
+    this.photoPath,
+    this.reminderEnabled = false,
+    this.reminderHour = 20,
+    this.reminderMinute = 0,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String name;
+  final double targetAmount;
+  final double savedAmount;
+  final String? photoPath;
+  final bool reminderEnabled;
+  final int reminderHour;
+  final int reminderMinute;
+  final DateTime createdAt;
+
+  double get progress => targetAmount <= 0
+      ? 0
+      : (savedAmount / targetAmount).clamp(0, 1).toDouble();
+
+  bool get isComplete => targetAmount > 0 && savedAmount >= targetAmount;
+
+  SavingsGoal copyWith({
+    String? name,
+    double? targetAmount,
+    double? savedAmount,
+    String? photoPath,
+    bool clearPhoto = false,
+    bool? reminderEnabled,
+    int? reminderHour,
+    int? reminderMinute,
+  }) => SavingsGoal(
+    id: id,
+    name: name ?? this.name,
+    targetAmount: targetAmount ?? this.targetAmount,
+    savedAmount: savedAmount ?? this.savedAmount,
+    photoPath: clearPhoto ? null : photoPath ?? this.photoPath,
+    reminderEnabled: reminderEnabled ?? this.reminderEnabled,
+    reminderHour: reminderHour ?? this.reminderHour,
+    reminderMinute: reminderMinute ?? this.reminderMinute,
+    createdAt: createdAt,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'targetAmount': targetAmount,
+    'savedAmount': savedAmount,
+    'photoPath': photoPath,
+    'reminderEnabled': reminderEnabled,
+    'reminderHour': reminderHour,
+    'reminderMinute': reminderMinute,
+    'createdAt': createdAt.toIso8601String(),
+  };
+
+  factory SavingsGoal.fromJson(Map<String, dynamic> json) => SavingsGoal(
+    id: json['id'] as String? ?? DateTime.now().microsecondsSinceEpoch.toString(),
+    name: json['name'] as String? ?? 'Tabungan',
+    targetAmount: (json['targetAmount'] as num?)?.toDouble() ?? 0,
+    savedAmount: (json['savedAmount'] as num?)?.toDouble() ?? 0,
+    photoPath: json['photoPath'] as String?,
+    reminderEnabled: json['reminderEnabled'] as bool? ?? false,
+    reminderHour: ((json['reminderHour'] as num?)?.toInt() ?? 20).clamp(0, 23),
+    reminderMinute: ((json['reminderMinute'] as num?)?.toInt() ?? 0).clamp(0, 59),
+    createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
+  );
+}
+
 class MoneyAccount {
   const MoneyAccount({
     required this.id,

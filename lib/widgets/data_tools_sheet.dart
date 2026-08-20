@@ -3,9 +3,6 @@ import 'package:flutter/material.dart';
 class DataToolsSheet extends StatelessWidget {
   const DataToolsSheet({
     super.key,
-    required this.onBackup,
-    required this.onDrive,
-    required this.onRestore,
     required this.onSpreadsheet,
     required this.onPdf,
     required this.onBudgets,
@@ -16,9 +13,6 @@ class DataToolsSheet extends StatelessWidget {
     required this.privacyEnabled,
   });
 
-  final VoidCallback onBackup;
-  final VoidCallback onDrive;
-  final VoidCallback onRestore;
   final VoidCallback onSpreadsheet;
   final VoidCallback onPdf;
   final VoidCallback onBudgets;
@@ -65,7 +59,7 @@ class DataToolsSheet extends StatelessWidget {
                         ),
                         const SizedBox(height: 4),
                         Text(
-                          'Kelola backup dan ekspor tanpa memenuhi layar.',
+                          'Kelola laporan dan ekspor tanpa memenuhi layar. Backup ada di Pengaturan.',
                           style: TextStyle(
                             color: colors.onSurface.withValues(alpha: 0.62),
                             fontSize: 13,
@@ -129,27 +123,6 @@ class DataToolsSheet extends StatelessWidget {
                 onTap: onPrivacy,
               ),
               const Divider(height: 18),
-              _ActionTile(
-                icon: Icons.phone_android_rounded,
-                color: colors.primary,
-                title: 'Backup ke perangkat',
-                subtitle: 'Simpan .bibzcup ke folder CatatBibz',
-                onTap: onBackup,
-              ),
-              _ActionTile(
-                icon: Icons.drive_file_move_outline,
-                color: const Color(0xFF2E7D5B),
-                title: 'Backup ke Google Drive',
-                subtitle: 'Gunakan menu berbagi yang aman',
-                onTap: onDrive,
-              ),
-              _ActionTile(
-                icon: Icons.restore_rounded,
-                color: const Color(0xFFB86E21),
-                title: 'Restore backup',
-                subtitle: 'Pulihkan hanya file .bibzcup valid',
-                onTap: onRestore,
-              ),
               _ActionTile(
                 icon: Icons.table_view_rounded,
                 color: const Color(0xFF356AA5),

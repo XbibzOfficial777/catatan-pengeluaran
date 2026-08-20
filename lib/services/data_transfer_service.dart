@@ -22,6 +22,7 @@ class RestorePayload {
     this.accounts = const <MoneyAccount>[],
     this.budgets = const <BudgetLimit>[],
     this.recurring = const <RecurringExpense>[],
+    this.savingsGoals = const <SavingsGoal>[],
     this.privacyMode = false,
   });
 
@@ -33,6 +34,7 @@ class RestorePayload {
   final List<MoneyAccount> accounts;
   final List<BudgetLimit> budgets;
   final List<RecurringExpense> recurring;
+  final List<SavingsGoal> savingsGoals;
   final bool privacyMode;
 }
 
@@ -162,6 +164,27 @@ class DataTransferService {
             const <XmlElement>[]) {
       recurring.add(RecurringExpense.fromJson(_integrity.parseEntry(item)));
     }
+    final savingsGoals = <SavingsGoal>[];
+    for (final item
+        in root.findElements('savingsGoals').firstOrNull?.findElements('savingsGoal') ??
+            const <XmlElement>[]) {
+      final json = _integrity.parseEntry(item);
+      final photoPath = json['photoPath'] as String?;
+      if (photoPath != null && photoPath.isNotEmpty && photoPath.startsWith('photos/')) {
+        final restored = await _restorePhoto(
+          {...json, 'backupPhoto': photoPath},
+          archive,
+          restoredPhotos,
+        );
+        restored['photoPath'] = restored['imagePath'];
+        restored.remove('imagePath');
+        restored.remove('backupPhoto');
+        savingsGoals.add(SavingsGoal.fromJson(restored));
+      } else {
+        json['photoPath'] = null;
+        savingsGoals.add(SavingsGoal.fromJson(json));
+      }
+    }
     final privacyMode =
         (root.findElements('privacyMode').firstOrNull?.innerText ?? 'false')
             .toLowerCase() ==
@@ -176,6 +199,7 @@ class DataTransferService {
       accounts: accounts,
       budgets: budgets,
       recurring: recurring,
+      savingsGoals: savingsGoals,
       privacyMode: privacyMode,
     );
   }

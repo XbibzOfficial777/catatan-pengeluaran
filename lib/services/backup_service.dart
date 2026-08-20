@@ -23,6 +23,7 @@ class BackupService {
     List<MoneyAccount> accounts = const <MoneyAccount>[],
     List<BudgetLimit> budgets = const <BudgetLimit>[],
     List<RecurringExpense> recurring = const <RecurringExpense>[],
+    List<SavingsGoal> savingsGoals = const <SavingsGoal>[],
     bool privacyMode = false,
   }) async {
     await _requestStoragePermission();
@@ -72,6 +73,28 @@ class BackupService {
             (item) => _integrity.createEntry('recurringExpense', item.toJson()),
           )
           .toList();
+      final savingsXml = <XmlElement>[];
+      for (final goal in savingsGoals) {
+        final data = Map<String, dynamic>.from(goal.toJson());
+        final sourcePath = goal.photoPath;
+        if (sourcePath != null && sourcePath.isNotEmpty) {
+          final source = File(sourcePath);
+          if (await source.exists()) {
+            final extension = source.path.contains('.')
+                ? source.path.split('.').last.toLowerCase()
+                : 'jpg';
+            final safeExtension = RegExp(r'^[a-z0-9]{1,8}$').hasMatch(extension)
+                ? extension
+                : 'jpg';
+            final filename = 'savings_${goal.id}.$safeExtension';
+            await source.copy('${photos.path}/$filename');
+            data['photoPath'] = 'photos/$filename';
+          } else {
+            data['photoPath'] = null;
+          }
+        }
+        savingsXml.add(_integrity.createEntry('savingsGoal', data));
+      }
       final fileXml = <XmlElement>[];
       await for (final entity in photos.list()) {
         if (entity is! File) continue;
@@ -89,6 +112,7 @@ class BackupService {
         accounts: accountXml,
         budgets: budgetXml,
         recurring: recurringXml,
+        savingsGoals: savingsXml,
         privacyMode: privacyMode,
         files: fileXml,
       );

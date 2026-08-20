@@ -63,6 +63,12 @@ class ImageFeedService {
     );
   }
 
+  Future<void> clearCache() async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.remove(_cachedUrlsKey);
+    await preferences.remove(_cachedAtKey);
+  }
+
   Future<List<String>> _fetchFromNetwork() async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 6);
     try {

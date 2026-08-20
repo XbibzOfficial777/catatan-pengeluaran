@@ -53,6 +53,7 @@ class BackupIntegrityService {
     required List<XmlElement> accounts,
     required List<XmlElement> budgets,
     required List<XmlElement> recurring,
+    required List<XmlElement> savingsGoals,
     required bool privacyMode,
     required List<XmlElement> files,
   }) {
@@ -73,6 +74,7 @@ class BackupIntegrityService {
         XmlElement.tag('accounts', children: accounts),
         XmlElement.tag('budgets', children: budgets),
         XmlElement.tag('recurringExpenses', children: recurring),
+        XmlElement.tag('savingsGoals', children: savingsGoals),
         _textElement('privacyMode', privacyMode.toString()),
         XmlElement.tag('files', children: files),
       ],

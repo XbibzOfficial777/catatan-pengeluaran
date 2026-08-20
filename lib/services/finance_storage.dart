@@ -9,11 +9,23 @@ class FinanceStorage {
   static const _expenseKey = 'expense_entries_v1';
   static const _debtKey = 'debt_entries_v1';
   static const _themeKey = 'theme_mode_v1';
+  static const _languageKey = 'app_language_v1';
   static const _pocketMoneyKey = 'pocket_money_v1';
   static const _accountsKey = 'money_accounts_v1';
   static const _budgetsKey = 'budget_limits_v1';
   static const _recurringKey = 'recurring_expenses_v1';
   static const _privacyKey = 'privacy_mode_v1';
+  static const _savingsKey = 'savings_goals_v1';
+
+  Future<String> loadLanguage() async {
+    final preferences = await SharedPreferences.getInstance();
+    return preferences.getString(_languageKey) ?? 'id';
+  }
+
+  Future<void> saveLanguage(String languageCode) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_languageKey, languageCode);
+  }
 
   Future<List<ExpenseEntry>> loadExpenses() async {
     final preferences = await SharedPreferences.getInstance();
@@ -103,6 +115,22 @@ class FinanceStorage {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(
       _recurringKey,
+      jsonEncode(entries.map((entry) => entry.toJson()).toList()),
+    );
+  }
+
+  Future<List<SavingsGoal>> loadSavingsGoals() async {
+    final preferences = await SharedPreferences.getInstance();
+    return _decodeList(
+      preferences.getString(_savingsKey),
+      SavingsGoal.fromJson,
+    );
+  }
+
+  Future<void> saveSavingsGoals(List<SavingsGoal> entries) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(
+      _savingsKey,
       jsonEncode(entries.map((entry) => entry.toJson()).toList()),
     );
   }

@@ -7,6 +7,8 @@ import 'package:image_editor_plus/image_editor_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:package_info_plus/package_info_plus.dart';
+import 'package:path_provider/path_provider.dart';
 
 import 'models/finance_models.dart';
 import 'services/finance_storage.dart';
@@ -19,6 +21,7 @@ import 'services/reminder_service.dart';
 import 'services/image_feed_service.dart';
 import 'services/advanced_finance_service.dart';
 import 'services/report_service.dart';
+import 'services/app_update_service.dart';
 import 'models/reminder_models.dart';
 import 'models/advanced_finance_models.dart';
 import 'widgets/reminder_settings_sheet.dart';
@@ -27,6 +30,8 @@ import 'widgets/data_tools_sheet.dart';
 import 'widgets/advanced_finance_sheets.dart';
 import 'widgets/analytics_sheet.dart';
 import 'widgets/expense_filter_dialog.dart';
+import 'widgets/savings_sheet.dart';
+import 'widgets/app_settings_sheet.dart';
 
 import 'package:share_plus/share_plus.dart';
 import 'package:home_widget/home_widget.dart';
@@ -312,7 +317,7 @@ class _SplashScreenState extends State<SplashScreen>
   }
 }
 
-enum FinanceTab { overview, expenses, debts }
+enum FinanceTab { overview, expenses, debts, savings }
 
 class FinanceHomePage extends StatefulWidget {
   const FinanceHomePage({
@@ -345,6 +350,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   List<MoneyAccount> _accounts = <MoneyAccount>[];
   List<BudgetLimit> _budgets = <BudgetLimit>[];
   List<RecurringExpense> _recurring = <RecurringExpense>[];
+  List<SavingsGoal> _savings = <SavingsGoal>[];
   ExpenseFilter _expenseFilter = const ExpenseFilter();
   List<String> _dashboardImageUrls = const <String>[];
   bool _imageFeedLoading = false;
@@ -353,10 +359,14 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   double _pocketMoney = 0;
   FinanceTab _tab = FinanceTab.overview;
   bool _isLoading = true;
+  String _languageCode = 'id';
+  String _cacheInfoLabel = 'menghitung...';
   final _debtSearchController = TextEditingController();
   final _expenseSearchController = TextEditingController();
   String _debtQuery = '';
   String _expenseQuery = '';
+  final Set<String> _selectedExpenseIds = <String>{};
+  bool _isSelectingExpenses = false;
 
   static const _quickActionChannel = MethodChannel('catatan/quick_actions');
 
@@ -370,6 +380,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     });
     _loadData();
     _loadImageFeed();
+    _refreshCacheInfo();
   }
 
   @override
@@ -387,7 +398,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     final accounts = await _storage.loadAccounts();
     final budgets = await _storage.loadBudgets();
     final recurring = await _storage.loadRecurringExpenses();
+    final savings = await _storage.loadSavingsGoals();
     final privacy = await _storage.loadPrivacyMode();
+    final languageCode = await _storage.loadLanguage();
     final generated = _advancedService.materializeDueRecurring(
       recurring: recurring,
       now: DateTime.now(),
@@ -398,7 +411,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       await _storage.saveExpenses(expenses);
     }
     try {
-      await ReminderService.instance.syncAll(reminders);
+      await ReminderService.instance.syncAll(_allReminderSchedules(reminders, savings));
     } catch (_) {
       // A missing notification permission must not block the finance dashboard.
     }
@@ -411,8 +424,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       _accounts = accounts;
       _budgets = budgets;
       _recurring = recurring;
+      _savings = savings;
       _privacyEnabled = privacy;
       _privacyMode = privacy;
+      _languageCode = languageCode == 'en' ? 'en' : 'id';
       _isLoading = false;
     });
     await _syncHomeWidget();
@@ -565,6 +580,79 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   Future<void> _saveAccounts() => _storage.saveAccounts(_accounts);
   Future<void> _saveBudgets() => _storage.saveBudgets(_budgets);
   Future<void> _saveRecurring() => _storage.saveRecurringExpenses(_recurring);
+  Future<void> _saveSavings() => _storage.saveSavingsGoals(_savings);
+
+  void _toggleExpenseSelection(String id) {
+    setState(() {
+      if (!_selectedExpenseIds.remove(id)) _selectedExpenseIds.add(id);
+    });
+  }
+
+  void _selectAllExpenses(List<ExpenseEntry> entries) {
+    setState(() {
+      _selectedExpenseIds
+        ..clear()
+        ..addAll(entries.map((entry) => entry.id));
+    });
+  }
+
+  void _exitExpenseSelection() {
+    setState(() {
+      _isSelectingExpenses = false;
+      _selectedExpenseIds.clear();
+    });
+  }
+
+  Future<void> _markSelectedExpensesSettled() async {
+    if (_selectedExpenseIds.isEmpty) return;
+    setState(() {
+      _expenses = _expenses
+          .map(
+            (entry) => _selectedExpenseIds.contains(entry.id)
+                ? entry.copyWith(isSettled: true)
+                : entry,
+          )
+          .toList();
+    });
+    await _saveExpenses();
+    if (mounted) _exitExpenseSelection();
+  }
+
+  Future<void> _deleteSelectedExpenses() async {
+    if (_selectedExpenseIds.isEmpty) return;
+    final selected = _expenses
+        .where((entry) => _selectedExpenseIds.contains(entry.id))
+        .toList();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Hapus ${selected.length} pengeluaran?'),
+        content: const Text('Transaksi terpilih dan foto lampirannya akan dihapus.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Batal'),
+          ),
+          FilledButton.tonal(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            style: FilledButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Hapus'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    for (final entry in selected) {
+      await _imageService.delete(entry.imagePath);
+    }
+    setState(() {
+      _expenses.removeWhere((entry) => _selectedExpenseIds.contains(entry.id));
+      _selectedExpenseIds.clear();
+      _isSelectingExpenses = false;
+    });
+    await _saveExpenses();
+    await _syncHomeWidget();
+  }
 
   Future<void> _openBudgets() async {
     final updated = await showModalBottomSheet<List<BudgetLimit>>(
@@ -746,6 +834,70 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       );
   }
 
+  List<ReminderSchedule> _allReminderSchedules(
+    List<ReminderSchedule> reminders,
+    List<SavingsGoal> savings,
+  ) => [
+    ...reminders,
+    ...savings.where((goal) => goal.reminderEnabled).map(
+      (goal) => ReminderSchedule(
+        id: _savingsReminderId(goal.id),
+        title: 'Waktu menabung: ${goal.name}',
+        body: 'Sisihkan sedikit untuk mencapai target ${goal.name}.',
+        hour: goal.reminderHour,
+        minute: goal.reminderMinute,
+        frequency: ReminderFrequency.daily,
+        weekdays: const <int>[],
+      ),
+    ),
+  ];
+
+  int _savingsReminderId(String id) {
+    var hash = 0;
+    for (final code in id.codeUnits) {
+      hash = (hash * 31 + code) & 0x1fffffff;
+    }
+    return 700000000 + hash;
+  }
+
+  Future<void> _openSavings() async {
+    final updated = await showModalBottomSheet<List<SavingsGoal>>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Theme.of(context).colorScheme.surface,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (_) => SavingsSettingsSheet(
+        initialGoals: _savings,
+        imageService: _imageService,
+      ),
+    );
+    if (updated == null || !mounted) return;
+    final granted = updated.any((goal) => goal.reminderEnabled)
+        ? await ReminderService.instance.requestPermission()
+        : true;
+    setState(() => _savings = updated);
+    await _saveSavings();
+    try {
+      await ReminderService.instance.syncAll(
+        _allReminderSchedules(_reminders, updated),
+      );
+    } catch (_) {
+      // Goals remain saved even if notification permission is unavailable.
+    }
+    if (!granted && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Tabungan tersimpan, tetapi izin notifikasi belum diberikan.',
+          ),
+        ),
+      );
+    }
+  }
+
   Future<void> _openReminders() async {
     final updated = await showModalBottomSheet<List<ReminderSchedule>>(
       context: context,
@@ -759,7 +911,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     setState(() => _reminders = updated);
     await _saveReminders();
     try {
-      await ReminderService.instance.syncAll(updated);
+      await ReminderService.instance.syncAll(
+        _allReminderSchedules(updated, _savings),
+      );
     } catch (_) {
       // The schedules remain saved and can be synced again after permission is granted.
     }
@@ -920,6 +1074,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         accounts: _accounts,
         budgets: _budgets,
         recurring: _recurring,
+        savingsGoals: _savings,
         privacyMode: _privacyEnabled,
       );
       if (!mounted) return;
@@ -950,6 +1105,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         accounts: _accounts,
         budgets: _budgets,
         recurring: _recurring,
+        savingsGoals: _savings,
         privacyMode: _privacyEnabled,
       );
       if (!mounted) return;
@@ -1026,6 +1182,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           _reminders = [...payload.reminders];
           _budgets = [...payload.budgets];
           _recurring = _remapRecurringAccounts(payload.recurring, accountIdMap);
+          _savings = [...payload.savingsGoals];
           _privacyEnabled = payload.privacyMode;
           _privacyMode = _privacyEnabled;
         } else {
@@ -1054,6 +1211,13 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
               ..._recurring,
               ...payload.recurring,
             ], accountIdMap);
+          if (payload.savingsGoals.isNotEmpty) {
+            final savings = {for (final item in _savings) item.id: item};
+            for (final item in payload.savingsGoals) {
+              savings[item.id] = item;
+            }
+            _savings = savings.values.toList();
+          }
           if (payload.privacyMode) {
             _privacyEnabled = true;
             _privacyMode = true;
@@ -1069,9 +1233,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       await _saveAccounts();
       await _saveBudgets();
       await _saveRecurring();
+      await _saveSavings();
       await _storage.savePrivacyMode(_privacyEnabled);
       try {
-        await ReminderService.instance.syncAll(_reminders);
+        await ReminderService.instance.syncAll(_allReminderSchedules(_reminders, _savings));
       } catch (_) {
         // Restore data must remain successful even when notification permission is denied.
       }
@@ -1176,14 +1341,186 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     );
   }
 
-  void _openSettings() {
-    showModalBottomSheet<void>(
+  Future<void> _openSettings() async {
+    await _refreshCacheInfo();
+    if (!mounted) return;
+    await showModalBottomSheet<void>(
       context: context,
       useSafeArea: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => ThemeSettingsSheet(
-        selected: widget.themeMode,
-        onSelected: widget.onThemeModeChanged,
+      isScrollControlled: true,
+      builder: (_) => AppSettingsSheet(
+        languageCode: _languageCode,
+        cacheInfo: _cacheInfoLabel,
+        selectedTheme: widget.themeMode,
+        onThemeSelected: widget.onThemeModeChanged,
+        onLanguageChanged: (value) {
+          setState(() => _languageCode = value);
+          _storage.saveLanguage(value);
+        },
+        onBackup: _createBackup,
+        onRestore: _restoreBackup,
+        onCheckUpdate: _checkForUpdates,
+        onClearCache: _clearAppCache,
+      ),
+    );
+  }
+
+  Future<void> _refreshCacheInfo() async {
+    final temporary = await getTemporaryDirectory();
+    final documents = await getApplicationDocumentsDirectory();
+    final attachments = Directory('${documents.path}/attachments');
+    var updateBytes = 0;
+    var attachmentBytes = 0;
+    if (await temporary.exists()) {
+      await for (final entity in temporary.list()) {
+        if (entity is File && entity.path.endsWith('.apk')) {
+          updateBytes += await entity.length();
+        }
+      }
+    }
+    if (await attachments.exists()) {
+      await for (final entity in attachments.list(recursive: true)) {
+        if (entity is File) attachmentBytes += await entity.length();
+      }
+    }
+    if (mounted) {
+      setState(() {
+        _cacheInfoLabel =
+            'Gambar dashboard tersimpan • APK ${_formatBytes(updateBytes)} • Lampiran ${_formatBytes(attachmentBytes)}';
+      });
+    }
+  }
+
+  String _formatBytes(int bytes) {
+    if (bytes < 1024) return '$bytes B';
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  Future<void> _clearAppCache() async {
+    await _imageFeedService.clearCache();
+    await AppUpdateService.instance.cleanupDownloadedApks();
+    await _refreshCacheInfo();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Cache sementara berhasil dibersihkan. Foto lampiran tetap aman.')),
+      );
+    }
+  }
+
+  Future<void> _checkForUpdates() async {
+    try {
+      final current = await PackageInfo.fromPlatform();
+      final latest = await AppUpdateService.instance.checkLatest();
+      final currentCode = int.tryParse(current.buildNumber) ?? 0;
+      final hasUpdate = latest.versionCode > currentCode || latest.version != current.version;
+      if (!mounted) return;
+      if (!hasUpdate) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Aplikasi sudah versi terbaru (${current.version}).')),
+        );
+        return;
+      }
+      if (!AppUpdateService.instance.supportsApkInstall) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              _languageCode == 'en'
+                  ? 'A new version is available. iOS/Web updates are delivered through their platform deployment channel.'
+                  : 'Versi baru tersedia. Update iOS/Web dilakukan melalui kanal deployment platform masing-masing.',
+            ),
+          ),
+        );
+        return;
+      }
+      await _showUpdateDialog(current.version, latest);
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Cek update gagal: $error')),
+        );
+      }
+    }
+  }
+
+  Future<void> _showUpdateDialog(String currentVersion, AppUpdateInfo latest) async {
+    var downloading = false;
+    var progress = 0.0;
+    String? errorMessage;
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: !downloading,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) {
+          final percent = (progress * 100).round();
+          return AlertDialog(
+            title: const Text('Pembaruan tersedia'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Versi saat ini: $currentVersion\nVersi terbaru: ${latest.version}'),
+                if (latest.releaseNotes.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text(latest.releaseNotes),
+                ],
+                if (downloading) ...[
+                  const SizedBox(height: 18),
+                  LinearProgressIndicator(value: progress == 0 ? null : progress),
+                  const SizedBox(height: 8),
+                  Text(progress == 0 ? 'Menyiapkan unduhan...' : 'Mengunduh $percent%'),
+                ],
+                if (errorMessage != null) ...[
+                  const SizedBox(height: 12),
+                  Text(errorMessage!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                ],
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: downloading ? null : () => Navigator.pop(dialogContext),
+                child: const Text('Nanti'),
+              ),
+              FilledButton.icon(
+                onPressed: downloading
+                    ? null
+                    : () async {
+                        setDialogState(() {
+                          downloading = true;
+                          errorMessage = null;
+                        });
+                        try {
+                          final path = await AppUpdateService.instance.download(
+                            latest,
+                            preferArm64: true,
+                            onProgress: (received, total) {
+                              if (!dialogContext.mounted) return;
+                              setDialogState(() {
+                                progress = total > 0 ? received / total : 0;
+                              });
+                            },
+                          );
+                          if (dialogContext.mounted) Navigator.pop(dialogContext);
+                          await AppUpdateService.instance.installApk(path);
+                          Future<void>.delayed(const Duration(seconds: 45), () {
+                            return AppUpdateService.instance.cleanupDownloadedApks();
+                          });
+                        } catch (error) {
+                          if (dialogContext.mounted) {
+                            setDialogState(() {
+                              downloading = false;
+                              errorMessage = 'Download atau instalasi gagal: $error';
+                            });
+                          }
+                        }
+                      },
+                icon: const Icon(Icons.download_rounded),
+                label: const Text('Perbarui'),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1246,9 +1583,6 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
               ),
               isScrollControlled: true,
               builder: (_) => DataToolsSheet(
-                onBackup: _createBackup,
-                onDrive: _backupToGoogleDrive,
-                onRestore: _restoreBackup,
                 onSpreadsheet: _shareSpreadsheet,
                 onPdf: _sharePdf,
                 onBudgets: _openBudgets,
@@ -1262,9 +1596,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
             icon: const Icon(Icons.more_horiz_rounded),
           ),
           IconButton(
-            tooltip: 'Tema',
+            tooltip: 'Pengaturan',
             onPressed: _openSettings,
-            icon: const Icon(Icons.tune_rounded),
+            icon: const Icon(Icons.menu_rounded),
           ),
           const SizedBox(width: 10),
         ],
@@ -1308,6 +1642,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
             selectedIcon: Icon(Icons.handshake_rounded),
             label: 'Hutang',
           ),
+          NavigationDestination(
+            icon: Icon(Icons.savings_outlined),
+            selectedIcon: Icon(Icons.savings_rounded),
+            label: 'Tabungan',
+          ),
         ],
       ),
       floatingActionButton: _buildFab(colors),
@@ -1316,14 +1655,29 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
 
   Widget? _buildFab(ColorScheme colors) {
     final isDebt = _tab == FinanceTab.debts;
+    final isSavings = _tab == FinanceTab.savings;
     return FloatingActionButton.extended(
       heroTag: 'finance-fab',
-      onPressed: isDebt ? _showDebtForm : _showExpenseForm,
+      onPressed: isDebt
+          ? _showDebtForm
+          : isSavings
+          ? _openSavings
+          : _showExpenseForm,
       backgroundColor: isDebt ? _mint : colors.primary,
       foregroundColor: Colors.white,
-      icon: Icon(isDebt ? Icons.add_card_rounded : Icons.add_rounded),
+      icon: Icon(
+        isDebt
+            ? Icons.add_card_rounded
+            : isSavings
+            ? Icons.savings_rounded
+            : Icons.add_rounded,
+      ),
       label: Text(
-        isDebt ? 'Tambah hutang' : 'Catat pengeluaran',
+        isDebt
+            ? 'Tambah hutang'
+            : isSavings
+            ? 'Tambah tabungan'
+            : 'Catat pengeluaran',
         style: const TextStyle(fontWeight: FontWeight.w700),
       ),
     );
@@ -1337,7 +1691,78 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         return _buildExpenseList(key: const ValueKey('expenses'));
       case FinanceTab.debts:
         return _buildDebtList(key: const ValueKey('debts'));
+      case FinanceTab.savings:
+        return _buildSavingsPage(key: const ValueKey('savings'));
     }
+  }
+
+  Widget _buildSavingsPage({required Key key}) {
+    final colors = Theme.of(context).colorScheme;
+    final target = _savings.fold<double>(
+      0,
+      (sum, goal) => sum + goal.targetAmount,
+    );
+    final saved = _savings.fold<double>(
+      0,
+      (sum, goal) => sum + goal.savedAmount,
+    );
+    return ListView(
+      key: key,
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 108),
+      children: [
+        _PageHeading(
+          title: 'Tabungan',
+          subtitle: 'Tujuan yang ingin kamu wujudkan',
+        ),
+        const SizedBox(height: 16),
+        Card(
+          color: colors.primary,
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Total terkumpul',
+                  style: TextStyle(color: Colors.white70, fontSize: 12),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  _formatCurrency(saved),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 25,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'dari ${_formatCurrency(target)} total target',
+                  style: const TextStyle(color: Colors.white70),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 14),
+        if (_savings.isEmpty)
+          _buildEmptyCard(
+            'Belum ada tabungan',
+            'Tekan tombol Tambah tabungan untuk membuat tujuan baru.',
+            Icons.savings_outlined,
+          )
+        else
+          ..._savings.map(
+            (goal) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _SavingsOverviewCard(
+                goal: goal,
+                onTap: _openSavings,
+              ),
+            ),
+          ),
+      ],
+    );
   }
 
   Widget _buildOverview({required Key key}) {
@@ -1846,6 +2271,57 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
               '${filtered.length} dari ${_expenses.length} transaksi tercatat',
         ),
         const SizedBox(height: 14),
+        if (_isSelectingExpenses) ...[
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Row(
+                children: [
+                  IconButton(
+                    tooltip: 'Selesai memilih',
+                    onPressed: _exitExpenseSelection,
+                    icon: const Icon(Icons.close_rounded),
+                  ),
+                  Expanded(
+                    child: Text(
+                      '${_selectedExpenseIds.length} dipilih',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: filtered.isEmpty
+                        ? null
+                        : () => _selectAllExpenses(filtered),
+                    child: const Text('Pilih semua'),
+                  ),
+                  IconButton(
+                    tooltip: 'Tandai lunas',
+                    onPressed: _selectedExpenseIds.isEmpty
+                        ? null
+                        : _markSelectedExpensesSettled,
+                    icon: const Icon(Icons.done_all_rounded),
+                  ),
+                  IconButton(
+                    tooltip: 'Hapus terpilih',
+                    onPressed: _selectedExpenseIds.isEmpty
+                        ? null
+                        : _deleteSelectedExpenses,
+                    icon: const Icon(Icons.delete_sweep_outlined),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+        ] else
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              onPressed: () => setState(() => _isSelectingExpenses = true),
+              icon: const Icon(Icons.checklist_rounded),
+              label: const Text('Pilih transaksi'),
+            ),
+          ),
         Row(
           children: [
             Expanded(
@@ -1898,8 +2374,13 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
               padding: const EdgeInsets.only(bottom: 10),
               child: _ExpenseTile(
                 entry: entry,
-                onTap: () => _showExpenseForm(entry: entry),
+                onTap: () => _isSelectingExpenses
+                    ? _toggleExpenseSelection(entry.id)
+                    : _showExpenseForm(entry: entry),
                 onDelete: () => _deleteExpense(entry),
+                selectable: _isSelectingExpenses,
+                selected: _selectedExpenseIds.contains(entry.id),
+                onSelect: () => _toggleExpenseSelection(entry.id),
               ),
             ),
           ),
@@ -2431,15 +2912,83 @@ class _AnimatedCardEntry extends StatelessWidget {
   }
 }
 
+class _SavingsOverviewCard extends StatelessWidget {
+  const _SavingsOverviewCard({required this.goal, required this.onTap});
+
+  final SavingsGoal goal;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final file = goal.photoPath == null ? null : File(goal.photoPath!);
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: SizedBox(
+                  width: 58,
+                  height: 58,
+                  child: file != null && file.existsSync()
+                      ? Image.file(file, fit: BoxFit.cover)
+                      : ColoredBox(
+                          color: colors.primary.withValues(alpha: 0.1),
+                          child: Icon(Icons.savings_outlined, color: colors.primary),
+                        ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(goal.name, style: const TextStyle(fontWeight: FontWeight.w900)),
+                    const SizedBox(height: 5),
+                    LinearProgressIndicator(
+                      value: goal.progress,
+                      minHeight: 7,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                    const SizedBox(height: 5),
+                    Text(
+                      '${_formatCurrency(goal.savedAmount)} / ${_formatCurrency(goal.targetAmount)}${goal.reminderEnabled ? ' • pengingat' : ''}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: colors.onSurface.withValues(alpha: 0.6),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _ExpenseTile extends StatelessWidget {
   const _ExpenseTile({
     required this.entry,
     required this.onTap,
     required this.onDelete,
+    this.selectable = false,
+    this.selected = false,
+    this.onSelect,
   });
   final ExpenseEntry entry;
   final VoidCallback onTap;
   final VoidCallback onDelete;
+  final bool selectable;
+  final bool selected;
+  final VoidCallback? onSelect;
 
   @override
   Widget build(BuildContext context) {
@@ -2460,7 +3009,9 @@ class _ExpenseTile extends StatelessWidget {
           child: Icon(Icons.delete_outline_rounded, color: colors.error),
         ),
         child: Material(
-          color: colors.surface,
+          color: selected
+              ? colors.primary.withValues(alpha: 0.1)
+              : colors.surface,
           borderRadius: BorderRadius.circular(12),
           child: InkWell(
             onTap: onTap,
@@ -2469,6 +3020,11 @@ class _ExpenseTile extends StatelessWidget {
               padding: const EdgeInsets.all(13),
               child: Row(
                 children: [
+                  if (selectable)
+                    Checkbox(
+                      value: selected,
+                      onChanged: (_) => onSelect?.call(),
+                    ),
                   _CategoryIcon(category: entry.category),
                   const SizedBox(width: 12),
                   Expanded(
@@ -2487,9 +3043,11 @@ class _ExpenseTile extends StatelessWidget {
                         ),
                         const SizedBox(height: 5),
                         Text(
-                          '${_categoryLabel(entry.category)} • ${_formatDate(entry.date)}',
+                          '${_categoryLabel(entry.category)} • ${_formatDate(entry.date)}${entry.isSettled ? ' • Lunas' : ''}',
                           style: TextStyle(
-                            color: colors.onSurface.withValues(alpha: 0.58),
+                            color: entry.isSettled
+                                ? _mint
+                                : colors.onSurface.withValues(alpha: 0.58),
                             fontSize: 11,
                           ),
                         ),
