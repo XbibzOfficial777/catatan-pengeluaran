@@ -47,6 +47,7 @@ jobs:
     name: Build optimized APKs
     needs: validate
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -67,6 +68,12 @@ jobs:
 
       - name: Install dependencies
         run: flutter pub get
+
+      - name: Configure Gradle for CI runner
+        run: |
+          sed -i 's/-Xmx768m/-Xmx4g/' android/gradle.properties
+          sed -i 's/org.gradle.workers.max=1/org.gradle.workers.max=2/' android/gradle.properties
+          sed -i 's/org.gradle.parallel=false/org.gradle.parallel=true/' android/gradle.properties
 
       - name: Build split ABI release APKs
         run: >-
