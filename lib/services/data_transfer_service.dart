@@ -12,6 +12,30 @@ import '../models/reminder_models.dart';
 import '../models/advanced_finance_models.dart';
 import 'backup_integrity_service.dart';
 
+/// Dilempar saat signature backup tidak cocok dengan kunci perangkat ini,
+/// umumnya karena backup dibuat di perangkat lain. UI dapat menawarkan
+/// kelanjutan restore dengan verifikasi checksum saja setelah persetujuan.
+class CrossDeviceBackupException implements FormatException {
+  const CrossDeviceBackupException(this.sourcePath);
+
+  /// Path file backup yang sedang diproses, agar percakapan konfirmasi bisa
+  /// langsung melanjutkan tanpa memilih file ulang.
+  final String sourcePath;
+
+  @override
+  String get message =>
+      'Backup dibuat di perangkat lain sehingga tidak dapat diverifikasi dengan kunci perangkat ini.';
+
+  @override
+  String? get source => null;
+
+  @override
+  int? get offset => null;
+
+  @override
+  String toString() => 'FormatException: $message';
+}
+
 class RestorePayload {
   const RestorePayload({
     required this.expenses,
@@ -54,8 +78,22 @@ class DataTransferService {
     if (picked == null || picked.files.isEmpty || picked.files.first.path == null) {
       return null;
     }
+    return restoreFromFile(picked.files.first.path!);
+  }
 
-    final source = File(picked.files.first.path!);
+  /// Restore dari file backup pada [path].
+  ///
+  /// Secara default signature HMAC perangkat diverifikasi ketat. Jika backup
+  /// dibuat di perangkat lain, lempar [CrossDeviceBackupException] sehingga UI
+  /// bisa meminta persetujuan pengguna sebelum melanjutkan dengan
+  /// `allowCrossDevice: true`. Pada mode lintas perangkat, signature perangkat
+  /// dilewati tetapi checksum SHA256 seluruh file di dalam arsip tetap
+  /// diverifikasi terhadap manifest.
+  Future<RestorePayload> restoreFromFile(
+    String path, {
+    bool allowCrossDevice = false,
+  }) async {
+    final source = File(path);
     if (!source.path.toLowerCase().endsWith('.bibzcup')) {
       throw const FormatException(
         'Restore ditolak: file harus berformat .bibzcup.',
@@ -89,14 +127,19 @@ class DataTransferService {
     }
 
     final expectedSignature = _integrity.integrityValue(root);
-    if (expectedSignature == null ||
-        !await _integrity.verifySignature(
+    final signatureValid =
+        expectedSignature != null &&
+        await _integrity.verifySignature(
           _integrity.canonicalize(root),
           expectedSignature,
-        )) {
-      throw const FormatException(
-        'Restore ditolak: backup telah berubah atau bukan dibuat oleh perangkat ini.',
-      );
+        );
+    if (!signatureValid) {
+      if (!allowCrossDevice) {
+        throw CrossDeviceBackupException(source.path);
+      }
+      // Mode lintas perangkat (dengan persetujuan pengguna): signature HMAC
+      // perangkat tidak cocok, namun verifikasi checksum file di bawah tetap
+      // dijalankan penuh sehingga arsip yang rusak/berubah tetap ditolak.
     }
     final expectedFiles = _integrity.parseFileHashes(root);
     if (!await _integrity.verifyArchiveFiles(archive, expectedFiles)) {
@@ -627,7 +670,8 @@ class DataTransferService {
   }
 
   void _hideGrid(Sheet sheet) {
-    // excel_plus 0.0.3 does not expose a gridline toggle; the workbook remains clean through styling and spacing.
+    // excel 4.0.6 belum menyediakan toggle gridline; tampilan tetap bersih
+    // lewat styling header, border, dan spacing.
   }
 
   CellStyle _titleStyle() => CellStyle(
@@ -805,15 +849,7 @@ class DataTransferService {
     return json;
   }
 
-  String _categoryLabel(ExpenseCategory category) => switch (category) {
-    ExpenseCategory.food => 'Makanan',
-    ExpenseCategory.transport => 'Transportasi',
-    ExpenseCategory.bills => 'Tagihan',
-    ExpenseCategory.shopping => 'Belanja',
-    ExpenseCategory.health => 'Kesehatan',
-    ExpenseCategory.entertainment => 'Hiburan',
-    ExpenseCategory.other => 'Lainnya',
-  };
+  String _categoryLabel(ExpenseCategory category) => category.label;
   String _stamp(DateTime date) =>
       '${date.year}${date.month.toString().padLeft(2, '0')}${date.day.toString().padLeft(2, '0')}_${date.hour.toString().padLeft(2, '0')}${date.minute.toString().padLeft(2, '0')}';
 }

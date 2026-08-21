@@ -7,8 +7,10 @@ import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../models/reminder_models.dart';
+import 'finance_storage.dart' show StorageCorruptionReport, StorageCorruptionTracker;
 
 class ReminderStorage {
+  final StorageCorruptionTracker _corruption = StorageCorruptionTracker();
   static const _key = 'reminder_schedules_v1';
 
   Future<List<ReminderSchedule>> load() async {
@@ -17,15 +19,39 @@ class ReminderStorage {
     if (raw == null || raw.isEmpty) return <ReminderSchedule>[];
     try {
       final decoded = jsonDecode(raw);
-      if (decoded is! List) return <ReminderSchedule>[];
-      return decoded
-          .whereType<Map<String, dynamic>>()
-          .map(ReminderSchedule.fromJson)
-          .toList();
+      if (decoded is! List) {
+        throw const FormatException('Nilai storage pengingat bukan list JSON.');
+      }
+      var damagedEntries = 0;
+      final results = <ReminderSchedule>[];
+      for (final item in decoded) {
+        if (item is! Map<String, dynamic>) {
+          damagedEntries++;
+          continue;
+        }
+        try {
+          results.add(ReminderSchedule.fromJson(item));
+        } catch (_) {
+          damagedEntries++;
+        }
+      }
+      if (damagedEntries > 0) {
+        _corruption.markPartial(_key);
+        await _corruption.quarantineRaw(preferences, _key, raw);
+      }
+      return results;
     } catch (_) {
+      // Data rusak dikarantina, bukan dibuang diam-diam. Pemanggil dapat
+      // memeriksa consumeCorruptionReport() sebelum menyimpan data baru.
+      _corruption.markUnreadable(_key);
+      await _corruption.quarantineRaw(preferences, _key, raw);
       return <ReminderSchedule>[];
     }
   }
+
+  /// Laporan korupsi storage pengingat sejak panggilan terakhir.
+  StorageCorruptionReport consumeCorruptionReport() =>
+      _corruption.consumeCorruptionReport();
 
   Future<void> save(List<ReminderSchedule> reminders) async {
     final preferences = await SharedPreferences.getInstance();

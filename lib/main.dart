@@ -1,17 +1,23 @@
+import 'dart:async';
 import 'dart:io';
-import 'dart:math' as math;
-import 'dart:typed_data';
 import 'dart:ui';
 
-import 'package:image_editor_plus/image_editor_plus.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'core/format.dart';
+import 'core/palette.dart';
+import 'forms/debt_form_sheet.dart';
+import 'forms/expense_form_sheet.dart';
 import 'models/finance_models.dart';
+import 'models/json_helpers.dart';
+import 'widgets/calculator_sheet.dart';
+import 'widgets/communication_sheet.dart';
+import 'widgets/finance_tiles.dart';
+import 'services/finance_calc.dart';
 import 'services/finance_storage.dart';
 import 'services/image_attachment_service.dart';
 import 'services/contact_service.dart';
@@ -25,7 +31,6 @@ import 'services/report_service.dart';
 import 'services/app_update_service.dart';
 import 'models/reminder_models.dart';
 import 'models/advanced_finance_models.dart';
-import 'models/json_helpers.dart';
 import 'widgets/reminder_settings_sheet.dart';
 import 'widgets/dashboard_image_rail.dart';
 import 'widgets/data_tools_sheet.dart';
@@ -38,19 +43,6 @@ import 'widgets/app_settings_sheet.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:home_widget/home_widget.dart';
 
-const _indigo = Color(0xFFF54E00); // Cursor Orange
-const _indigoDark = Color(0xFFD04200); // Cursor Orange active
-const _coral = Color(0xFFCF2D56); // semantic error
-const _mint = Color(0xFF1F8A65); // semantic success
-const _ink = Color(0xFF26251E);
-const _slate = Color(0xFF5A5852);
-const _lightBackground = Color(0xFFF7F7F4); // warm cream canvas
-const _darkBackground = Color(0xFF26251E);
-const _darkSurface = Color(0xFF333129);
-
-bool _privacyMode = false;
-
-String formatCurrency(double value) => _formatCurrency(value);
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -107,26 +99,26 @@ class _CatatanPengeluaranAppState extends State<CatatanPengeluaranApp> {
     final isDark = brightness == Brightness.dark;
     final scheme =
         ColorScheme.fromSeed(
-          seedColor: _indigo,
+          seedColor: cursorOrange,
           brightness: brightness,
         ).copyWith(
-          primary: isDark ? const Color(0xFFFF7A3D) : _indigo,
+          primary: isDark ? const Color(0xFFFF7A3D) : cursorOrange,
           onPrimary: Colors.white,
-          secondary: isDark ? const Color(0xFFFFA47A) : _mint,
+          secondary: isDark ? const Color(0xFFFFA47A) : semanticMint,
           onSecondary: Colors.white,
-          surface: isDark ? _darkSurface : const Color(0xFFFFFFFF),
-          onSurface: isDark ? const Color(0xFFF7F7F4) : _ink,
+          surface: isDark ? surfaceDark : const Color(0xFFFFFFFF),
+          onSurface: isDark ? const Color(0xFFF7F7F4) : warmInk,
           surfaceContainerHighest: isDark
               ? const Color(0xFF48453C)
               : const Color(0xFFE6E5E0),
           outline: isDark ? const Color(0xFF625F55) : const Color(0xFFE6E5E0),
-          error: _coral,
+          error: semanticError,
         );
     final base = ThemeData(
       useMaterial3: true,
       brightness: brightness,
       colorScheme: scheme,
-      scaffoldBackgroundColor: isDark ? _darkBackground : _lightBackground,
+      scaffoldBackgroundColor: isDark ? canvasDark : canvasLight,
       fontFamily: 'CursorGothic',
     );
     return base.copyWith(
@@ -162,7 +154,7 @@ class _CatatanPengeluaranAppState extends State<CatatanPengeluaranApp> {
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: scheme.primary, width: 1.5),
         ),
-        labelStyle: TextStyle(color: isDark ? const Color(0xFFA8B5C9) : _slate),
+        labelStyle: TextStyle(color: isDark ? const Color(0xFFA8B5C9) : warmSlate),
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: scheme.surface,
@@ -416,19 +408,26 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     final savings = await _storage.loadSavingsGoals();
     final privacy = await _storage.loadPrivacyMode();
     final languageCode = await _storage.loadLanguage();
-    final generated = _advancedService.materializeDueRecurring(
-      recurring: recurring,
-      now: DateTime.now(),
-      existing: expenses,
-    );
-    if (generated.isNotEmpty) {
-      expenses.addAll(generated);
-      await _storage.saveExpenses(expenses);
+    final storageReport = _storage.consumeCorruptionReport();
+    final reminderReport = _reminderStorage.consumeCorruptionReport();
+    // Data yang rusak total sudah dikarantina. Jangan pernah menulis ulang
+    // koleksi kosong hasil kegagalan baca: materialisasi pengeluaran berulang
+    // akan menganggap semua sudah hilang dan menimpa karantina dengan data baru.
+    final hasUnreadableData =
+        storageReport.hasUnreadableData || reminderReport.hasUnreadableData;
+    if (!hasUnreadableData) {
+      final generated = _advancedService.materializeDueRecurring(
+        recurring: recurring,
+        now: DateTime.now(),
+        existing: expenses,
+      );
+      if (generated.isNotEmpty) {
+        expenses.addAll(generated);
+        await _storage.saveExpenses(expenses);
+      }
     }
     try {
-      await ReminderService.instance.syncAll(
-        _allReminderSchedules(reminders, savings),
-      );
+      await ReminderService.instance.syncAll(_allReminderSchedules(reminders, savings));
     } catch (_) {
       // A missing notification permission must not block the finance dashboard.
     }
@@ -443,11 +442,40 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       _recurring = recurring;
       _savings = savings;
       _privacyEnabled = privacy;
-      _privacyMode = privacy;
+      PrivacyMask.enabled = privacy;
       _languageCode = languageCode == 'en' ? 'en' : 'id';
       _isLoading = false;
     });
     await _syncHomeWidget();
+    if (hasUnreadableData && mounted) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Data lokal terdeteksi rusak'),
+          content: const Text(
+            'Sebagian data tidak dapat dibaca dan salinan mentahnya telah disimpan otomatis dalam karantina internal. '
+            'Pengeluaran berulang sementara tidak diaktifkan otomatis agar data rusak tidak tertimpa.\n\n'
+            'Disarankan segera memulihkan data dari file backup terakhir (.bibzcup) melalui menu Pengaturan → Restore backup.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Mengerti'),
+            ),
+          ],
+        ),
+      );
+    } else if ((storageReport.hasPartialDamage ||
+            reminderReport.hasPartialDamage) &&
+        mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Beberapa catatan rusak dilewati saat memuat data. Salinan mentah disimpan untuk pemeriksaan.',
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _syncHomeWidget() async {
@@ -468,15 +496,15 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     try {
       await HomeWidget.saveWidgetData<String>(
         'month_expense',
-        _formatCurrency(monthExpense),
+        formatCurrency(monthExpense),
       );
       await HomeWidget.saveWidgetData<String>(
         'pocket_money',
-        _formatCurrency(_remainingPocketMoney),
+        formatCurrency(_remainingPocketMoney),
       );
       await HomeWidget.saveWidgetData<String>(
         'total_balance',
-        _formatCurrency(totalBalance),
+        formatCurrency(totalBalance),
       );
       await HomeWidget.updateWidget(name: 'FinanceWidgetProvider');
     } catch (_) {
@@ -533,62 +561,27 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   List<MoneyAccount> _deduplicateAccounts(
     Iterable<MoneyAccount> accounts, {
     Map<String, String>? idMap,
-  }) {
-    final canonical = <String, MoneyAccount>{};
-    for (final account in accounts) {
-      final key = normalizeMoneyAccountName(account.name);
-      final existing = canonical[key];
-      if (existing == null) {
-        canonical[key] = account;
-        idMap?[account.id] = account.id;
-      } else {
-        idMap?[account.id] = existing.id;
-      }
-    }
-    return canonical.values.toList();
-  }
+  }) => FinanceCalc.deduplicateAccounts(accounts, idMap: idMap);
 
   List<ExpenseEntry> _remapExpenseAccounts(
     Iterable<ExpenseEntry> expenses,
     Map<String, String> idMap,
-  ) => expenses
-      .map(
-        (entry) => entry.accountId != null && idMap[entry.accountId] != null
-            ? entry.copyWith(accountId: idMap[entry.accountId])
-            : entry,
-      )
-      .toList();
+  ) => FinanceCalc.remapExpenseAccounts(expenses, idMap);
 
   List<RecurringExpense> _remapRecurringAccounts(
     Iterable<RecurringExpense> items,
     Map<String, String> idMap,
-  ) => items
-      .map(
-        (item) => item.accountId != null && idMap[item.accountId] != null
-            ? item.copyWith(accountId: idMap[item.accountId])
-            : item,
-      )
-      .toList();
+  ) => FinanceCalc.remapRecurringAccounts(items, idMap);
 
-  double get _totalExpense =>
-      roundMoney(_expenses.fold(0.0, (sum, item) => sum + item.amount));
-  double get _pocketMoneyExpense => roundMoney(
-    _expenses
-        .where((item) => item.accountId == null)
-        .fold(0.0, (sum, item) => sum + item.amount),
-  );
-  double get _remainingPocketMoney =>
-      roundMoney(_pocketMoney - _pocketMoneyExpense);
-  double get _payable => roundMoney(
-    _debts
-        .where((item) => item.kind == DebtKind.payable && !item.isSettled)
-        .fold(0.0, (sum, item) => sum + item.amount),
-  );
-  double get _receivable => roundMoney(
-    _debts
-        .where((item) => item.kind == DebtKind.receivable && !item.isSettled)
-        .fold(0.0, (sum, item) => sum + item.amount),
-  );
+  FinanceTotals get _totals => FinanceCalc.totals(
+        expenses: _expenses,
+        debts: _debts,
+        pocketMoney: _pocketMoney,
+      );
+  double get _totalExpense => _totals.totalExpense;
+  double get _remainingPocketMoney => _totals.remainingPocketMoney;
+  double get _payable => _totals.payable;
+  double get _receivable => _totals.receivable;
 
   Future<void> _loadImageFeed({bool forceRefresh = false}) async {
     if (mounted) setState(() => _imageFeedLoading = true);
@@ -655,9 +648,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text('Hapus ${selected.length} pengeluaran?'),
-        content: const Text(
-          'Transaksi terpilih dan foto lampirannya akan dihapus.',
-        ),
+        content: const Text('Transaksi terpilih dan foto lampirannya akan dihapus.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
@@ -821,16 +812,15 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       );
     } catch (error) {
       if (mounted)
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('PDF gagal dibuat: $error')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('PDF gagal dibuat: $error')));
     }
   }
 
   Future<void> _togglePrivacy() async {
     setState(() {
       _privacyEnabled = !_privacyEnabled;
-      _privacyMode = _privacyEnabled;
+      PrivacyMask.enabled = _privacyEnabled;
     });
     await _storage.savePrivacyMode(_privacyEnabled);
   }
@@ -868,30 +858,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   List<ReminderSchedule> _allReminderSchedules(
     List<ReminderSchedule> reminders,
     List<SavingsGoal> savings,
-  ) => [
-    ...reminders,
-    ...savings
-        .where((goal) => goal.reminderEnabled)
-        .map(
-          (goal) => ReminderSchedule(
-            id: _savingsReminderId(goal.id),
-            title: 'Waktu menabung: ${goal.name}',
-            body: 'Sisihkan sedikit untuk mencapai target ${goal.name}.',
-            hour: goal.reminderHour,
-            minute: goal.reminderMinute,
-            frequency: ReminderFrequency.daily,
-            weekdays: const <int>[],
-          ),
-        ),
-  ];
-
-  int _savingsReminderId(String id) {
-    var hash = 0;
-    for (final code in id.codeUnits) {
-      hash = (hash * 31 + code) & 0x1fffffff;
-    }
-    return 700000000 + hash;
-  }
+  ) => FinanceCalc.allReminderSchedules(reminders, savings);
 
   Future<void> _openSavings() async {
     final updated = await showModalBottomSheet<List<SavingsGoal>>(
@@ -994,7 +961,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           ),
           FilledButton(
             onPressed: () =>
-                Navigator.pop(dialogContext, _parseAmount(controller.text)),
+                Navigator.pop(dialogContext, parseAmount(controller.text)),
             child: const Text('Simpan'),
           ),
         ],
@@ -1019,7 +986,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         accounts: _accounts,
       ),
     );
-    if (result == null) return;
+    if (result == null || !mounted) return;
     setState(() {
       final index = _expenses.indexWhere((item) => item.id == result.id);
       if (index == -1) {
@@ -1045,7 +1012,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         contactService: _contactService,
       ),
     );
-    if (result == null) return;
+    if (result == null || !mounted) return;
     setState(() {
       final index = _debts.indexWhere((item) => item.id == result.id);
       if (index == -1) {
@@ -1061,9 +1028,22 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   Future<void> _deleteExpense(ExpenseEntry entry) async {
     setState(() => _expenses.removeWhere((item) => item.id == entry.id));
     await _saveExpenses();
-    await _imageService.delete(entry.imagePath);
-    if (!mounted) return;
+    if (!mounted) {
+      // Halaman sudah tidak aktif sehingga undo tidak lagi mungkin.
+      await _imageService.delete(entry.imagePath);
+      return;
+    }
+    // File lampiran dihapus setelah jendela undo berlalu, bukan segera,
+    // supaya tombol URUNGKAN tidak mengembalikan entry dengan path foto yang
+    // sudah tidak ada (lampiran menggantung).
+    var undone = false;
+    final pendingDelete = Timer(const Duration(seconds: 6), () {
+      if (!undone) _imageService.delete(entry.imagePath);
+    });
     _showUndoSnackBar('Pengeluaran dihapus', () {
+      undone = true;
+      pendingDelete.cancel();
+      if (!mounted) return;
       setState(() => _expenses = [entry, ..._expenses]);
       _saveExpenses();
     });
@@ -1072,9 +1052,18 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   Future<void> _deleteDebt(DebtEntry entry) async {
     setState(() => _debts.removeWhere((item) => item.id == entry.id));
     await _saveDebts();
-    await _imageService.delete(entry.imagePath);
-    if (!mounted) return;
+    if (!mounted) {
+      await _imageService.delete(entry.imagePath);
+      return;
+    }
+    var undone = false;
+    final pendingDelete = Timer(const Duration(seconds: 6), () {
+      if (!undone) _imageService.delete(entry.imagePath);
+    });
     _showUndoSnackBar('Catatan hutang dihapus', () {
+      undone = true;
+      pendingDelete.cancel();
+      if (!mounted) return;
       setState(() => _debts = [entry, ..._debts]);
       _saveDebts();
     });
@@ -1166,8 +1155,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         ShareParams(
           title: 'Backup Catatan Pengeluaran',
           subject: 'Backup Catatan Pengeluaran',
-          text:
-              'Pilih Google Drive pada menu berbagi untuk menyimpan backup ini.',
+          text: 'Pilih Google Drive pada menu berbagi untuk menyimpan backup ini.',
           files: [XFile(file.path, mimeType: 'application/zip')],
           fileNameOverrides: [file.path.split('/').last],
         ),
@@ -1182,13 +1170,46 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
 
   Future<void> _restoreBackup() async {
     try {
-      final payload = await _transferService.pickAndRestore();
+      RestorePayload? payload;
+      try {
+        payload = await _transferService.pickAndRestore();
+      } on CrossDeviceBackupException catch (error) {
+        if (!mounted) return;
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Backup dari perangkat lain'),
+            content: const Text(
+              'Backup ini dibuat di perangkat berbeda sehingga tanda tangan perangkat tidak bisa diverifikasi di sini.\n\n'
+              'Isi file tetap akan diperiksa dengan checksum SHA256. Lanjutkan restore?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Batal'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Lanjutkan'),
+              ),
+            ],
+          ),
+        );
+        if (proceed != true || !mounted) return;
+        payload = await _transferService.restoreFromFile(
+          error.sourcePath,
+          allowCrossDevice: true,
+        );
+      }
       if (payload == null || !mounted) return;
+      // final lokal agar promosi non-null tetap berlaku di dalam closure
+      // dialog (payload yang mutable kehilangan promosi di closure Dart).
+      final restored = payload;
       final mode = await showDialog<RestoreMode>(
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: const Text('Pulihkan backup'),
-          content: Text('${payload.sourceName}\n\nPilih cara pemulihan data.'),
+          content: Text('${restored.sourceName}\n\nPilih cara pemulihan data.'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, RestoreMode.merge),
@@ -1207,54 +1228,54 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         if (mode == RestoreMode.replace) {
           final accountIdMap = <String, String>{};
           _accounts = _deduplicateAccounts(
-            payload.accounts,
+            restored.accounts,
             idMap: accountIdMap,
           );
-          _expenses = _remapExpenseAccounts(payload.expenses, accountIdMap);
-          _debts = [...payload.debts];
-          _pocketMoney = payload.pocketMoney;
-          _reminders = [...payload.reminders];
-          _budgets = [...payload.budgets];
-          _recurring = _remapRecurringAccounts(payload.recurring, accountIdMap);
-          _savings = [...payload.savingsGoals];
-          _privacyEnabled = payload.privacyMode;
-          _privacyMode = _privacyEnabled;
+          _expenses = _remapExpenseAccounts(restored.expenses, accountIdMap);
+          _debts = [...restored.debts];
+          _pocketMoney = restored.pocketMoney;
+          _reminders = [...restored.reminders];
+          _budgets = [...restored.budgets];
+          _recurring = _remapRecurringAccounts(restored.recurring, accountIdMap);
+          _savings = [...restored.savingsGoals];
+          _privacyEnabled = restored.privacyMode;
+          PrivacyMask.enabled = _privacyEnabled;
         } else {
           final accountIdMap = <String, String>{};
           _accounts = _deduplicateAccounts([
             ..._accounts,
-            ...payload.accounts,
+            ...restored.accounts,
           ], idMap: accountIdMap);
           final expenses = {for (final item in _expenses) item.id: item};
           final debts = {for (final item in _debts) item.id: item};
-          for (final item in payload.expenses) {
+          for (final item in restored.expenses) {
             expenses[item.id] = item;
           }
-          for (final item in payload.debts) {
+          for (final item in restored.debts) {
             debts[item.id] = item;
           }
           _expenses = _remapExpenseAccounts(expenses.values, accountIdMap);
           _debts = debts.values.toList();
-          if (payload.pocketMoney > 0) _pocketMoney = payload.pocketMoney;
-          if (payload.reminders.isNotEmpty)
-            _reminders = [..._reminders, ...payload.reminders];
-          if (payload.budgets.isNotEmpty)
-            _budgets = [..._budgets, ...payload.budgets];
-          if (payload.recurring.isNotEmpty)
+          if (restored.pocketMoney > 0) _pocketMoney = restored.pocketMoney;
+          if (restored.reminders.isNotEmpty)
+            _reminders = [..._reminders, ...restored.reminders];
+          if (restored.budgets.isNotEmpty)
+            _budgets = [..._budgets, ...restored.budgets];
+          if (restored.recurring.isNotEmpty)
             _recurring = _remapRecurringAccounts([
               ..._recurring,
-              ...payload.recurring,
+              ...restored.recurring,
             ], accountIdMap);
-          if (payload.savingsGoals.isNotEmpty) {
+          if (restored.savingsGoals.isNotEmpty) {
             final savings = {for (final item in _savings) item.id: item};
-            for (final item in payload.savingsGoals) {
+            for (final item in restored.savingsGoals) {
               savings[item.id] = item;
             }
             _savings = savings.values.toList();
           }
-          if (payload.privacyMode) {
+          if (restored.privacyMode) {
             _privacyEnabled = true;
-            _privacyMode = true;
+            PrivacyMask.enabled = true;
           }
         }
         _expenses.sort((a, b) => b.date.compareTo(a.date));
@@ -1270,9 +1291,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       await _saveSavings();
       await _storage.savePrivacyMode(_privacyEnabled);
       try {
-        await ReminderService.instance.syncAll(
-          _allReminderSchedules(_reminders, _savings),
-        );
+        await ReminderService.instance.syncAll(_allReminderSchedules(_reminders, _savings));
       } catch (_) {
         // Restore data must remain successful even when notification permission is denied.
       }
@@ -1280,7 +1299,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '${payload.expenses.length + payload.debts.length} catatan dan ${payload.reminders.length} pengingat berhasil dipulihkan.',
+              '${restored.expenses.length + restored.debts.length} catatan dan ${restored.reminders.length} pengingat berhasil dipulihkan.',
             ),
           ),
         );
@@ -1307,13 +1326,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         ShareParams(
           title: 'Spreadsheet Catatan Pengeluaran',
           subject: 'Laporan Catatan Pengeluaran',
-          text:
-              'Spreadsheet profesional Catatan Pengeluaran dengan ringkasan, transaksi, dan hutang/piutang.',
+          text: 'Spreadsheet profesional Catatan Pengeluaran dengan ringkasan, transaksi, dan hutang/piutang.',
           files: [
             XFile(
               file.path,
-              mimeType:
-                  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+              mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             ),
           ],
           fileNameOverrides: [file.path.split('/').last],
@@ -1392,6 +1409,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         cacheInfo: _cacheInfoLabel,
         selectedTheme: widget.themeMode,
         onThemeSelected: widget.onThemeModeChanged,
+        onBackupToDrive: _backupToGoogleDrive,
         onLanguageChanged: (value) {
           setState(() => _languageCode = value);
           _storage.saveLanguage(value);
@@ -1442,11 +1460,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     await _refreshCacheInfo();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Cache sementara berhasil dibersihkan. Foto lampiran tetap aman.',
-          ),
-        ),
+        const SnackBar(content: Text('Cache sementara berhasil dibersihkan. Foto lampiran tetap aman.')),
       );
     }
   }
@@ -1458,15 +1472,12 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       final currentCode = int.tryParse(current.buildNumber) ?? 0;
       // Android uses versionCode as the authoritative install/update order.
       // A changed display version with the same code is not installable as an update.
-      final hasUpdate =
-          latest.versionCode > currentCode ||
+      final hasUpdate = latest.versionCode > currentCode ||
           (currentCode == 0 && latest.version != current.version);
       if (!mounted) return;
       if (!hasUpdate) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Aplikasi sudah versi terbaru (${current.version}).'),
-          ),
+          SnackBar(content: Text('Aplikasi sudah versi terbaru (${current.version}).')),
         );
         return;
       }
@@ -1485,17 +1496,14 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       await _showUpdateDialog(current.version, latest);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text('Cek update gagal: $error')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Cek update gagal: $error')),
+        );
       }
     }
   }
 
-  Future<void> _showUpdateDialog(
-    String currentVersion,
-    AppUpdateInfo latest,
-  ) async {
+  Future<void> _showUpdateDialog(String currentVersion, AppUpdateInfo latest) async {
     var downloading = false;
     var progress = 0.0;
     String? errorMessage;
@@ -1511,41 +1519,26 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  'Versi saat ini: $currentVersion\nVersi terbaru: ${latest.version}',
-                ),
+                Text('Versi saat ini: $currentVersion\nVersi terbaru: ${latest.version}'),
                 if (latest.releaseNotes.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   Text(latest.releaseNotes),
                 ],
                 if (downloading) ...[
                   const SizedBox(height: 18),
-                  LinearProgressIndicator(
-                    value: progress == 0 ? null : progress,
-                  ),
+                  LinearProgressIndicator(value: progress == 0 ? null : progress),
                   const SizedBox(height: 8),
-                  Text(
-                    progress == 0
-                        ? 'Menyiapkan unduhan...'
-                        : 'Mengunduh $percent%',
-                  ),
+                  Text(progress == 0 ? 'Menyiapkan unduhan...' : 'Mengunduh $percent%'),
                 ],
                 if (errorMessage != null) ...[
                   const SizedBox(height: 12),
-                  Text(
-                    errorMessage!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
+                  Text(errorMessage!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
                 ],
               ],
             ),
             actions: [
               TextButton(
-                onPressed: downloading
-                    ? null
-                    : () => Navigator.pop(dialogContext),
+                onPressed: downloading ? null : () => Navigator.pop(dialogContext),
                 child: const Text('Nanti'),
               ),
               FilledButton.icon(
@@ -1567,19 +1560,16 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                               });
                             },
                           );
-                          if (dialogContext.mounted)
-                            Navigator.pop(dialogContext);
+                          if (dialogContext.mounted) Navigator.pop(dialogContext);
                           await AppUpdateService.instance.installApk(path);
                           Future<void>.delayed(const Duration(seconds: 45), () {
-                            return AppUpdateService.instance
-                                .cleanupDownloadedApks();
+                            return AppUpdateService.instance.cleanupDownloadedApks();
                           });
                         } catch (error) {
                           if (dialogContext.mounted) {
                             setDialogState(() {
                               downloading = false;
-                              errorMessage =
-                                  'Download atau instalasi gagal: $error';
+                              errorMessage = 'Download atau instalasi gagal: $error';
                             });
                           }
                         }
@@ -1732,7 +1722,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           : isSavings
           ? _openSavings
           : _showExpenseForm,
-      backgroundColor: isDebt ? _mint : colors.primary,
+      backgroundColor: isDebt ? semanticMint : colors.primary,
       foregroundColor: Colors.white,
       icon: Icon(
         isDebt
@@ -1779,7 +1769,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       key: key,
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 108),
       children: [
-        _PageHeading(
+        PageHeading(
           title: 'Tabungan',
           subtitle: 'Tujuan yang ingin kamu wujudkan',
         ),
@@ -1797,7 +1787,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  _formatCurrency(saved),
+                  formatCurrency(saved),
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 25,
@@ -1806,7 +1796,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'dari ${_formatCurrency(target)} total target',
+                  'dari ${formatCurrency(target)} total target',
                   style: const TextStyle(color: Colors.white70),
                 ),
               ],
@@ -1824,7 +1814,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           ..._savings.map(
             (goal) => Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: _SavingsOverviewCard(goal: goal, onTap: _openSavings),
+              child: SavingsOverviewCard(
+                goal: goal,
+                onTap: _openSavings,
+              ),
             ),
           ),
       ],
@@ -1866,26 +1859,26 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           Row(
             children: [
               Expanded(
-                child: _MetricCard(
+                child: MetricCard(
                   label: 'Hutang kita',
-                  value: _formatCurrency(_payable),
+                  value: formatCurrency(_payable),
                   icon: Icons.arrow_upward_rounded,
-                  color: _coral,
+                  color: semanticError,
                 ),
               ),
               const SizedBox(width: 12),
               Expanded(
-                child: _MetricCard(
+                child: MetricCard(
                   label: 'Piutang kita',
-                  value: _formatCurrency(_receivable),
+                  value: formatCurrency(_receivable),
                   icon: Icons.arrow_downward_rounded,
-                  color: _mint,
+                  color: semanticMint,
                 ),
               ),
             ],
           ),
           const SizedBox(height: 25),
-          _SectionHeader(
+          SectionHeader(
             title: 'Pengeluaran terbaru',
             actionLabel: 'Lihat semua',
             onAction: () => setState(() => _tab = FinanceTab.expenses),
@@ -1901,7 +1894,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
             ...recent.asMap().entries.map(
               (item) => Padding(
                 padding: const EdgeInsets.only(bottom: 10),
-                child: _ExpenseTile(
+                child: ExpenseTile(
                   entry: item.value,
                   onTap: () => _showExpenseForm(entry: item.value),
                   onDelete: () => _deleteExpense(item.value),
@@ -1909,7 +1902,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
               ),
             ),
           const SizedBox(height: 10),
-          _SectionHeader(
+          SectionHeader(
             title: 'Hutang & piutang',
             actionLabel: 'Kelola',
             onAction: () => setState(() => _tab = FinanceTab.debts),
@@ -1966,7 +1959,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                   const SizedBox(height: 3),
                   Text(
                     hasAllowance
-                        ? _formatCurrency(_pocketMoney)
+                        ? formatCurrency(_pocketMoney)
                         : 'Belum diatur',
                     style: TextStyle(
                       color: colors.onSurface,
@@ -1978,10 +1971,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                   if (hasAllowance)
                     Text(
                       isOver
-                          ? 'Melebihi ${_formatCurrency(remaining.abs())}'
-                          : 'Sisa Uang Saku ${_formatCurrency(remaining)}',
+                          ? 'Melebihi ${formatCurrency(remaining.abs())}'
+                          : 'Sisa Uang Saku ${formatCurrency(remaining)}',
                       style: TextStyle(
-                        color: isOver ? colors.error : _mint,
+                        color: isOver ? colors.error : semanticMint,
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
                       ),
@@ -2014,9 +2007,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
             Expanded(
               child: Text(
                 'Saldo akun/dompet (di luar Uang Saku)',
-                style: Theme.of(
-                  context,
-                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
+                style: Theme.of(context).textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w800),
               ),
             ),
             TextButton.icon(
@@ -2109,7 +2101,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                             Text(
                               _privacyEnabled
                                   ? '••••••'
-                                  : _formatCurrency(account.balance),
+                                  : formatCurrency(account.balance),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: const TextStyle(
@@ -2207,8 +2199,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
               const SizedBox(height: 6),
               Text(
                 status.isExceeded
-                    ? 'Melebihi ${_formatCurrency(status.remaining.abs())}'
-                    : 'Sisa ${_formatCurrency(status.remaining)}',
+                    ? 'Melebihi ${formatCurrency(status.remaining.abs())}'
+                    : 'Sisa ${formatCurrency(status.remaining)}',
                 style: TextStyle(
                   fontSize: 11,
                   color: colors.onSurface.withValues(alpha: 0.62),
@@ -2223,13 +2215,14 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
 
   Widget _buildBalanceCard(ColorScheme colors) {
     final today = DateTime.now();
-    final thisMonth = _expenses
-        .where(
-          (entry) =>
-              entry.date.year == today.year && entry.date.month == today.month,
-        )
-        .fold(0.0, (sum, entry) => sum + entry.amount);
-    final roundedTodayExpense = roundMoney(thisMonth);
+    final thisMonth = roundMoney(
+      _expenses
+          .where(
+            (entry) =>
+                entry.date.year == today.year && entry.date.month == today.month,
+          )
+          .fold(0.0, (sum, entry) => sum + entry.amount),
+    );
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0.92, end: 1),
       duration: const Duration(milliseconds: 500),
@@ -2244,7 +2237,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         decoration: BoxDecoration(
           color: colors.primary,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: _indigoDark.withValues(alpha: 0.45)),
+          border: Border.all(color: cursorOrangeDark.withValues(alpha: 0.45)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2283,7 +2276,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
             ),
             const SizedBox(height: 9),
             Text(
-              _formatCurrency(thisMonth),
+              formatCurrency(thisMonth),
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 30,
@@ -2312,7 +2305,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                   ),
                 ),
                 Text(
-                  _formatCurrency(roundedTodayExpense),
+                  formatCurrency(_totalExpense),
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 12,
@@ -2333,7 +2326,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       key: key,
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 108),
       children: [
-        _PageHeading(
+        PageHeading(
           title: 'Riwayat pengeluaran',
           subtitle:
               '${filtered.length} dari ${_expenses.length} transaksi tercatat',
@@ -2440,7 +2433,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           ...filtered.map(
             (entry) => Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: _ExpenseTile(
+              child: ExpenseTile(
                 entry: entry,
                 onTap: () => _isSelectingExpenses
                     ? _toggleExpenseSelection(entry.id)
@@ -2474,7 +2467,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       key: key,
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 108),
       children: [
-        _PageHeading(
+        PageHeading(
           title: 'Hutang & piutang',
           subtitle: 'Jaga semua janji tetap tercatat',
         ),
@@ -2545,11 +2538,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                                   : 'Nomor tidak tersimpan',
                             ),
                             trailing: Text(
-                              _formatCurrency(entry.amount),
+                              formatCurrency(entry.amount),
                               style: TextStyle(
                                 color: entry.kind == DebtKind.payable
-                                    ? _coral
-                                    : _mint,
+                                    ? semanticError
+                                    : semanticMint,
                                 fontSize: 11,
                                 fontWeight: FontWeight.w800,
                               ),
@@ -2584,7 +2577,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
             entries: filtered
                 .where((item) => item.kind == DebtKind.receivable)
                 .toList(),
-            color: _mint,
+            color: semanticMint,
           ),
           const SizedBox(height: 22),
           _buildDebtSection(
@@ -2593,7 +2586,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
             entries: filtered
                 .where((item) => item.kind == DebtKind.payable)
                 .toList(),
-            color: _coral,
+            color: semanticError,
           ),
         ],
       ],
@@ -2630,9 +2623,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                   Text(
                     subtitle,
                     style: TextStyle(
-                      color: Theme.of(
-                        context,
-                      ).colorScheme.onSurface.withValues(alpha: 0.58),
+                      color: Theme.of(context).colorScheme.onSurface
+                          .withValues(alpha: 0.58),
                       fontSize: 12,
                     ),
                   ),
@@ -2665,17 +2657,15 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
               color: Theme.of(context).colorScheme.surface,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color: Theme.of(
-                  context,
-                ).colorScheme.outline.withValues(alpha: 0.65),
+                color: Theme.of(context).colorScheme.outline
+                    .withValues(alpha: 0.65),
               ),
             ),
             child: Text(
               'Belum ada catatan di bagian ini.',
               style: TextStyle(
-                color: Theme.of(
-                  context,
-                ).colorScheme.onSurface.withValues(alpha: 0.58),
+                color: Theme.of(context).colorScheme.onSurface
+                    .withValues(alpha: 0.58),
                 fontSize: 13,
               ),
             ),
@@ -2684,7 +2674,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           ...entries.map(
             (entry) => Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: _DebtTile(
+              child: DebtTile(
                 entry: entry,
                 onToggle: () => _toggleDebt(entry),
                 onTap: () => _showDebtForm(entry: entry),
@@ -2708,10 +2698,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       child: Row(
         children: [
           Expanded(
-            child: _DebtAmount(
+            child: DebtAmount(
               label: 'Hutang',
               amount: _payable,
-              color: _coral,
+              color: semanticError,
               icon: Icons.arrow_upward_rounded,
             ),
           ),
@@ -2721,10 +2711,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
             color: colors.outline.withValues(alpha: 0.7),
           ),
           Expanded(
-            child: _DebtAmount(
+            child: DebtAmount(
               label: 'Piutang',
               amount: _receivable,
-              color: _mint,
+              color: semanticMint,
               icon: Icons.arrow_downward_rounded,
             ),
           ),
@@ -2771,2016 +2761,13 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   }
 }
 
-class _PageHeading extends StatelessWidget {
-  const _PageHeading({required this.title, required this.subtitle});
-  final String title;
-  final String subtitle;
 
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          title,
-          style: TextStyle(
-            color: colors.onSurface,
-            fontSize: 27,
-            fontWeight: FontWeight.w800,
-            letterSpacing: -0.6,
-          ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          subtitle,
-          style: TextStyle(
-            color: colors.onSurface.withValues(alpha: 0.62),
-            fontSize: 14,
-          ),
-        ),
-      ],
-    );
-  }
-}
 
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title, this.actionLabel, this.onAction});
-  final String title;
-  final String? actionLabel;
-  final VoidCallback? onAction;
 
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            title,
-            style: TextStyle(
-              color: colors.onSurface,
-              fontSize: 17,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ),
-        if (actionLabel != null)
-          TextButton(
-            onPressed: onAction,
-            child: Text(
-              actionLabel!,
-              style: TextStyle(
-                color: colors.primary,
-                fontWeight: FontWeight.w700,
-                fontSize: 12,
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _MetricCard extends StatelessWidget {
-  const _MetricCard({
-    required this.label,
-    required this.value,
-    required this.icon,
-    required this.color,
-  });
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Container(
-      padding: const EdgeInsets.all(15),
-      decoration: BoxDecoration(
-        color: colors.surface,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: colors.outline.withValues(alpha: 0.65)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 32,
-            height: 32,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.13),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, color: color, size: 18),
-          ),
-          const SizedBox(height: 13),
-          Text(
-            label,
-            style: TextStyle(
-              color: colors.onSurface.withValues(alpha: 0.62),
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: colors.onSurface,
-              fontWeight: FontWeight.w800,
-              fontSize: 15,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DebtAmount extends StatelessWidget {
-  const _DebtAmount({
-    required this.label,
-    required this.amount,
-    required this.color,
-    required this.icon,
-  });
-  final String label;
-  final double amount;
-  final Color color;
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Row(
-        children: [
-          Container(
-            width: 31,
-            height: 31,
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.13),
-              shape: BoxShape.circle,
-            ),
-            child: Icon(icon, size: 16, color: color),
-          ),
-          const SizedBox(width: 9),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: colors.onSurface.withValues(alpha: 0.6),
-                    fontSize: 12,
-                  ),
-                ),
-                const SizedBox(height: 3),
-                Text(
-                  _formatCurrency(amount),
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    color: colors.onSurface,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _AnimatedCardEntry extends StatelessWidget {
-  const _AnimatedCardEntry({required this.child});
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    return TweenAnimationBuilder<double>(
-      tween: Tween(begin: 0, end: 1),
-      duration: const Duration(milliseconds: 420),
-      curve: Curves.easeOutCubic,
-      builder: (context, value, child) => Opacity(
-        opacity: value,
-        child: Transform.translate(
-          offset: Offset(0, (1 - value) * 10),
-          child: child,
-        ),
-      ),
-      child: child,
-    );
-  }
-}
-
-class _SavingsOverviewCard extends StatelessWidget {
-  const _SavingsOverviewCard({required this.goal, required this.onTap});
-
-  final SavingsGoal goal;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final file = goal.photoPath == null ? null : File(goal.photoPath!);
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: InkWell(
-        onTap: onTap,
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              ClipRRect(
-                borderRadius: BorderRadius.circular(12),
-                child: SizedBox(
-                  width: 58,
-                  height: 58,
-                  child: file != null && file.existsSync()
-                      ? Image.file(
-                          file,
-                          fit: BoxFit.cover,
-                          cacheWidth: 180,
-                          cacheHeight: 180,
-                          errorBuilder: (context, error, stackTrace) =>
-                              ColoredBox(
-                                color: colors.primary.withValues(alpha: 0.1),
-                                child: Icon(
-                                  Icons.broken_image_outlined,
-                                  color: colors.primary,
-                                ),
-                              ),
-                        )
-                      : ColoredBox(
-                          color: colors.primary.withValues(alpha: 0.1),
-                          child: Icon(
-                            Icons.savings_outlined,
-                            color: colors.primary,
-                          ),
-                        ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      goal.name,
-                      style: const TextStyle(fontWeight: FontWeight.w900),
-                    ),
-                    const SizedBox(height: 5),
-                    LinearProgressIndicator(
-                      value: goal.progress,
-                      minHeight: 7,
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      '${_formatCurrency(goal.savedAmount)} / ${_formatCurrency(goal.targetAmount)}${goal.reminderEnabled ? ' • pengingat' : ''}',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: colors.onSurface.withValues(alpha: 0.6),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ExpenseTile extends StatelessWidget {
-  const _ExpenseTile({
-    required this.entry,
-    required this.onTap,
-    required this.onDelete,
-    this.selectable = false,
-    this.selected = false,
-    this.onSelect,
-  });
-  final ExpenseEntry entry;
-  final VoidCallback onTap;
-  final VoidCallback onDelete;
-  final bool selectable;
-  final bool selected;
-  final VoidCallback? onSelect;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return _AnimatedCardEntry(
-      child: Dismissible(
-        key: ValueKey(entry.id),
-        direction: DismissDirection.endToStart,
-        confirmDismiss: (_) => _confirmDeleteEntry(context, entry),
-        onDismissed: (_) => onDelete(),
-        background: Container(
-          alignment: Alignment.centerRight,
-          padding: const EdgeInsets.only(right: 22),
-          decoration: BoxDecoration(
-            color: colors.error.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(Icons.delete_outline_rounded, color: colors.error),
-        ),
-        child: Material(
-          color: selected
-              ? colors.primary.withValues(alpha: 0.1)
-              : colors.surface,
-          borderRadius: BorderRadius.circular(12),
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(12),
-            child: Padding(
-              padding: const EdgeInsets.all(13),
-              child: Row(
-                children: [
-                  if (selectable)
-                    Checkbox(
-                      value: selected,
-                      onChanged: (_) => onSelect?.call(),
-                    ),
-                  _CategoryIcon(category: entry.category),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          entry.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: colors.onSurface,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w800,
-                          ),
-                        ),
-                        const SizedBox(height: 5),
-                        Text(
-                          '${_categoryLabel(entry.category)} • ${_formatDate(entry.date)}${entry.isSettled ? ' • Lunas' : ''}',
-                          style: TextStyle(
-                            color: entry.isSettled
-                                ? _mint
-                                : colors.onSurface.withValues(alpha: 0.58),
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        _formatCurrency(entry.amount),
-                        style: TextStyle(
-                          color: colors.onSurface,
-                          fontSize: 13,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      if (entry.imagePath != null) ...[
-                        const SizedBox(height: 5),
-                        Icon(
-                          Icons.image_outlined,
-                          size: 14,
-                          color: colors.primary,
-                        ),
-                      ],
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _DebtTile extends StatelessWidget {
-  const _DebtTile({
-    required this.entry,
-    required this.onToggle,
-    required this.onTap,
-    required this.onDelete,
-    required this.onCommunicate,
-  });
-  final DebtEntry entry;
-  final VoidCallback onToggle;
-  final VoidCallback onTap;
-  final VoidCallback onDelete;
-  final VoidCallback onCommunicate;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final color = entry.kind == DebtKind.payable ? _coral : _mint;
-    return _AnimatedCardEntry(
-      child: Dismissible(
-        key: ValueKey(entry.id),
-        direction: DismissDirection.endToStart,
-        confirmDismiss: (_) => _confirmDeleteEntry(context, entry),
-        onDismissed: (_) => onDelete(),
-        background: Container(
-          alignment: Alignment.centerRight,
-          padding: const EdgeInsets.only(right: 22),
-          decoration: BoxDecoration(
-            color: colors.error.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(Icons.delete_outline_rounded, color: colors.error),
-        ),
-        child: Material(
-          color: colors.surface,
-          borderRadius: BorderRadius.circular(12),
-          child: InkWell(
-            onTap: onTap,
-            borderRadius: BorderRadius.circular(12),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(8, 12, 12, 12),
-              child: Row(
-                children: [
-                  Checkbox(
-                    value: entry.isSettled,
-                    onChanged: (_) => onToggle(),
-                    activeColor: _mint,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                  ),
-                  Container(
-                    width: 36,
-                    height: 36,
-                    decoration: BoxDecoration(
-                      color: color.withValues(alpha: 0.13),
-                      shape: BoxShape.circle,
-                    ),
-                    child: Icon(
-                      entry.kind == DebtKind.payable
-                          ? Icons.arrow_upward_rounded
-                          : Icons.arrow_downward_rounded,
-                      color: color,
-                      size: 19,
-                    ),
-                  ),
-                  const SizedBox(width: 11),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          entry.person,
-                          style: TextStyle(
-                            color: entry.isSettled
-                                ? colors.onSurface.withValues(alpha: 0.45)
-                                : colors.onSurface,
-                            fontWeight: FontWeight.w800,
-                            decoration: entry.isSettled
-                                ? TextDecoration.lineThrough
-                                : null,
-                          ),
-                        ),
-                        if (entry.contactPhone?.isNotEmpty == true) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            entry.contactPhone!,
-                            style: TextStyle(
-                              color: colors.onSurface.withValues(alpha: 0.5),
-                              fontSize: 10.5,
-                            ),
-                          ),
-                        ],
-                        const SizedBox(height: 4),
-                        Text(
-                          '${entry.kind == DebtKind.payable ? 'Hutang' : 'Piutang'} • ${entry.dueDate == null ? 'Tanpa tenggat' : 'Jatuh tempo ${_formatDate(entry.dueDate!)}'}',
-                          style: TextStyle(
-                            color: colors.onSurface.withValues(alpha: 0.58),
-                            fontSize: 11,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 6),
-                  IconButton(
-                    tooltip: entry.contactPhone?.isNotEmpty == true
-                        ? 'Kirim pesan'
-                        : 'Pilih kontak terlebih dahulu',
-                    onPressed: onCommunicate,
-                    icon: Icon(
-                      Icons.chat_bubble_outline_rounded,
-                      size: 19,
-                      color: entry.contactPhone?.isNotEmpty == true
-                          ? colors.primary
-                          : colors.onSurface.withValues(alpha: 0.28),
-                    ),
-                  ),
-                  const SizedBox(width: 2),
-                  Text(
-                    _formatCurrency(entry.amount),
-                    style: TextStyle(
-                      color: entry.isSettled
-                          ? colors.onSurface.withValues(alpha: 0.45)
-                          : color,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CategoryIcon extends StatelessWidget {
-  const _CategoryIcon({required this.category});
-  final ExpenseCategory category;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final color = _categoryColor(category, colors);
-    return Container(
-      width: 43,
-      height: 43,
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.13),
-        borderRadius: BorderRadius.circular(14),
-      ),
-      child: Icon(_categoryIcon(category), color: color, size: 21),
-    );
-  }
-}
-
-class ExpenseFormSheet extends StatefulWidget {
-  const ExpenseFormSheet({
-    super.key,
-    this.entry,
-    required this.imageService,
-    required this.accounts,
-  });
-  final ExpenseEntry? entry;
-  final ImageAttachmentService imageService;
-  final List<MoneyAccount> accounts;
-
-  @override
-  State<ExpenseFormSheet> createState() => _ExpenseFormSheetState();
-}
-
-class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
-  late final TextEditingController _title;
-  late final TextEditingController _amount;
-  late final TextEditingController _note;
-  late ExpenseCategory _category;
-  late DateTime _date;
-  String? _imagePath;
-  String? _accountId;
-  bool _saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _title = TextEditingController(text: widget.entry?.title ?? '');
-    _amount = TextEditingController(
-      text: widget.entry == null ? '' : widget.entry!.amount.toStringAsFixed(0),
-    );
-    _note = TextEditingController(text: widget.entry?.note ?? '');
-    _category = widget.entry?.category ?? ExpenseCategory.food;
-    _date = widget.entry?.date ?? DateTime.now();
-    _imagePath = widget.entry?.imagePath;
-    _accountId = widget.entry?.accountId;
-  }
-
-  @override
-  void dispose() {
-    _title.dispose();
-    _amount.dispose();
-    _note.dispose();
-    super.dispose();
-  }
-
-  Future<void> _chooseImage() async {
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      builder: (sheetContext) => _ImageSourceSheet(
-        onSelected: (value) => Navigator.pop(sheetContext, value),
-      ),
-    );
-    if (source == null || !mounted) return;
-    final newPath = await _pickEditStoreImage(
-      context,
-      widget.imageService,
-      source,
-    );
-    if (newPath == null) return;
-    if (_imagePath != null && _imagePath != newPath)
-      await widget.imageService.delete(_imagePath);
-    if (mounted) setState(() => _imagePath = newPath);
-  }
-
-  Future<void> _removeImage() async {
-    await widget.imageService.delete(_imagePath);
-    if (mounted) setState(() => _imagePath = null);
-  }
-
-  Future<void> _pickDate() async {
-    final selected = await showDatePicker(
-      context: context,
-      initialDate: _date,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
-      helpText: 'Pilih tanggal transaksi',
-    );
-    if (selected != null && mounted) setState(() => _date = selected);
-  }
-
-  void _save() {
-    final title = _title.text.trim();
-    final amount = _parseAmount(_amount.text);
-    if (title.isEmpty || amount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Isi nama transaksi dan nominal yang valid.'),
-        ),
-      );
-      return;
-    }
-    setState(() => _saving = true);
-    Navigator.pop(
-      context,
-      ExpenseEntry(
-        id: widget.entry?.id ?? _newId(),
-        title: title,
-        amount: amount,
-        category: _category,
-        date: _date,
-        note: _note.text.trim(),
-        imagePath: _imagePath,
-        accountId: _accountId,
-        recurringId: widget.entry?.recurringId,
-        createdAt: widget.entry?.createdAt ?? DateTime.now(),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return _SheetShell(
-      title: widget.entry == null ? 'Catat pengeluaran' : 'Edit pengeluaran',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          TextField(
-            controller: _title,
-            textCapitalization: TextCapitalization.sentences,
-            textInputAction: TextInputAction.next,
-            decoration: const InputDecoration(
-              labelText: 'Untuk apa pengeluaran ini?',
-              hintText: 'Contoh: Makan siang, ongkos, pulsa',
-            ),
-          ),
-          const SizedBox(height: 13),
-          TextField(
-            controller: _amount,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
-              labelText: 'Nominal',
-              prefixText: 'Rp  ',
-              hintText: '0',
-            ),
-          ),
-          const SizedBox(height: 13),
-          Row(
-            children: [
-              Expanded(
-                child: DropdownButtonFormField<ExpenseCategory>(
-                  value: _category,
-                  decoration: const InputDecoration(labelText: 'Kategori'),
-                  items: ExpenseCategory.values
-                      .map(
-                        (value) => DropdownMenuItem(
-                          value: value,
-                          child: Text(_categoryLabel(value)),
-                        ),
-                      )
-                      .toList(),
-                  onChanged: (value) {
-                    if (value != null) setState(() => _category = value);
-                  },
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: InkWell(
-                  onTap: _pickDate,
-                  borderRadius: BorderRadius.circular(15),
-                  child: InputDecorator(
-                    decoration: const InputDecoration(
-                      labelText: 'Tanggal',
-                      suffixIcon: Icon(Icons.calendar_today_outlined),
-                    ),
-                    child: Text(_formatDate(_date)),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          if (widget.accounts.isNotEmpty) ...[
-            const SizedBox(height: 13),
-            DropdownButtonFormField<String>(
-              value: _accountId,
-              decoration: const InputDecoration(labelText: 'Sumber dana'),
-              items: [
-                const DropdownMenuItem<String>(
-                  value: null,
-                  child: Text('Uang Saku'),
-                ),
-                ...widget.accounts
-                    .where((item) => !item.isArchived)
-                    .map(
-                      (item) => DropdownMenuItem(
-                        value: item.id,
-                        child: Text(item.name),
-                      ),
-                    ),
-              ],
-              onChanged: (value) => setState(() => _accountId = value),
-            ),
-          ],
-          const SizedBox(height: 13),
-          TextField(
-            controller: _note,
-            textCapitalization: TextCapitalization.sentences,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'Catatan (opsional)',
-              hintText: 'Tambahkan detail transaksi',
-            ),
-          ),
-          const SizedBox(height: 15),
-          _PhotoAttachment(
-            path: _imagePath,
-            onAdd: _chooseImage,
-            onRemove: _removeImage,
-            colors: colors,
-          ),
-          const SizedBox(height: 22),
-          SizedBox(
-            width: double.infinity,
-            height: 53,
-            child: FilledButton.icon(
-              onPressed: _saving ? null : _save,
-              style: FilledButton.styleFrom(
-                backgroundColor: colors.primary,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(15),
-                ),
-              ),
-              icon: _saving
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.check_rounded),
-              label: Text(
-                widget.entry == null
-                    ? 'Simpan pengeluaran'
-                    : 'Simpan perubahan',
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class DebtFormSheet extends StatefulWidget {
-  const DebtFormSheet({
-    super.key,
-    this.entry,
-    required this.imageService,
-    required this.contactService,
-  });
-  final DebtEntry? entry;
-  final ImageAttachmentService imageService;
-  final ContactService contactService;
-
-  @override
-  State<DebtFormSheet> createState() => _DebtFormSheetState();
-}
-
-class _DebtFormSheetState extends State<DebtFormSheet> {
-  late final TextEditingController _person;
-  late final TextEditingController _amount;
-  late final TextEditingController _note;
-  late DebtKind _kind;
-  late DateTime _date;
-  DateTime? _dueDate;
-  String? _imagePath;
-  String? _contactId;
-  String? _contactPhone;
-  bool _contactBusy = false;
-  bool _saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _person = TextEditingController(text: widget.entry?.person ?? '');
-    _amount = TextEditingController(
-      text: widget.entry == null ? '' : widget.entry!.amount.toStringAsFixed(0),
-    );
-    _note = TextEditingController(text: widget.entry?.note ?? '');
-    _kind = widget.entry?.kind ?? DebtKind.payable;
-    _date = widget.entry?.date ?? DateTime.now();
-    _dueDate = widget.entry?.dueDate;
-    _imagePath = widget.entry?.imagePath;
-    _contactId = widget.entry?.contactId;
-    _contactPhone = widget.entry?.contactPhone;
-  }
-
-  @override
-  void dispose() {
-    _person.dispose();
-    _amount.dispose();
-    _note.dispose();
-    super.dispose();
-  }
-
-  Future<void> _chooseImage() async {
-    final source = await showModalBottomSheet<ImageSource>(
-      context: context,
-      builder: (sheetContext) => _ImageSourceSheet(
-        onSelected: (value) => Navigator.pop(sheetContext, value),
-      ),
-    );
-    if (source == null || !mounted) return;
-    final newPath = await _pickEditStoreImage(
-      context,
-      widget.imageService,
-      source,
-    );
-    if (newPath == null) return;
-    if (_imagePath != null && _imagePath != newPath)
-      await widget.imageService.delete(_imagePath);
-    if (mounted) setState(() => _imagePath = newPath);
-  }
-
-  Future<void> _removeImage() async {
-    await widget.imageService.delete(_imagePath);
-    if (mounted) setState(() => _imagePath = null);
-  }
-
-  Future<void> _pickContact() async {
-    setState(() => _contactBusy = true);
-    try {
-      final selected = await widget.contactService.pickContact();
-      if (!mounted) return;
-      if (selected == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Kontak tidak dipilih atau izin kontak belum diberikan.',
-            ),
-          ),
-        );
-        return;
-      }
-      setState(() {
-        _contactId = selected.id;
-        _contactPhone = selected.phone;
-        _person.text = selected.name;
-      });
-    } catch (_) {
-      if (mounted)
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Kontak belum bisa diakses. Coba lagi.'),
-          ),
-        );
-    } finally {
-      if (mounted) setState(() => _contactBusy = false);
-    }
-  }
-
-  void _clearContact() {
-    setState(() {
-      _contactId = null;
-      _contactPhone = null;
-    });
-  }
-
-  Future<void> _pickDate({required bool due}) async {
-    final selected = await showDatePicker(
-      context: context,
-      initialDate: due ? (_dueDate ?? _date) : _date,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
-      helpText: due ? 'Pilih jatuh tempo' : 'Pilih tanggal hutang',
-    );
-    if (selected == null || !mounted) return;
-    setState(() {
-      if (due) {
-        _dueDate = selected;
-      } else {
-        _date = selected;
-      }
-    });
-  }
-
-  void _save() {
-    final person = _person.text.trim();
-    final amount = _parseAmount(_amount.text);
-    if (person.isEmpty || amount <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Isi nama orang dan nominal yang valid.')),
-      );
-      return;
-    }
-    setState(() => _saving = true);
-    Navigator.pop(
-      context,
-      DebtEntry(
-        id: widget.entry?.id ?? _newId(),
-        person: person,
-        amount: amount,
-        kind: _kind,
-        date: _date,
-        dueDate: _dueDate,
-        note: _note.text.trim(),
-        imagePath: _imagePath,
-        contactId: _contactId,
-        contactPhone: _contactPhone,
-        isSettled: widget.entry?.isSettled ?? false,
-        createdAt: widget.entry?.createdAt ?? DateTime.now(),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return _SheetShell(
-      title: widget.entry == null ? 'Tambah hutang' : 'Edit catatan hutang',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SegmentedButton<DebtKind>(
-            segments: const [
-              ButtonSegment(
-                value: DebtKind.payable,
-                label: Text('Saya berhutang'),
-                icon: Icon(Icons.arrow_upward_rounded),
-              ),
-              ButtonSegment(
-                value: DebtKind.receivable,
-                label: Text('Dipinjam orang'),
-                icon: Icon(Icons.arrow_downward_rounded),
-              ),
-            ],
-            selected: {_kind},
-            onSelectionChanged: (value) => setState(() => _kind = value.first),
-          ),
-          const SizedBox(height: 14),
-          TextField(
-            controller: _person,
-            textCapitalization: TextCapitalization.words,
-            textInputAction: TextInputAction.next,
-            decoration: InputDecoration(
-              labelText: 'Nama orang',
-              hintText: 'Ketik manual atau pilih kontak',
-              suffixIcon: _contactBusy
-                  ? const Padding(
-                      padding: EdgeInsets.all(14),
-                      child: SizedBox.square(
-                        dimension: 18,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      ),
-                    )
-                  : IconButton(
-                      tooltip: 'Pilih dari kontak',
-                      onPressed: _pickContact,
-                      icon: const Icon(Icons.contacts_outlined),
-                    ),
-            ),
-          ),
-          if (_contactId != null) ...[
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.fromLTRB(12, 9, 8, 9),
-              decoration: BoxDecoration(
-                color: colors.primary.withValues(alpha: 0.07),
-                borderRadius: BorderRadius.circular(13),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.person_outline_rounded,
-                    size: 18,
-                    color: colors.primary,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _contactPhone?.isNotEmpty == true
-                          ? _contactPhone!
-                          : 'Nomor tidak tersedia',
-                      style: TextStyle(
-                        color: colors.onSurface.withValues(alpha: 0.68),
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  TextButton(
-                    onPressed: _clearContact,
-                    child: const Text(
-                      'Lepas',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-          const SizedBox(height: 13),
-          TextField(
-            controller: _amount,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(
-              labelText: 'Nominal',
-              prefixText: 'Rp  ',
-              hintText: '0',
-            ),
-          ),
-          const SizedBox(height: 13),
-          Row(
-            children: [
-              Expanded(
-                child: InkWell(
-                  onTap: () => _pickDate(due: false),
-                  borderRadius: BorderRadius.circular(15),
-                  child: InputDecorator(
-                    decoration: const InputDecoration(
-                      labelText: 'Tanggal',
-                      suffixIcon: Icon(Icons.event_outlined),
-                    ),
-                    child: Text(_formatDate(_date)),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: InkWell(
-                  onTap: () => _pickDate(due: true),
-                  borderRadius: BorderRadius.circular(15),
-                  child: InputDecorator(
-                    decoration: InputDecoration(
-                      labelText: 'Jatuh tempo',
-                      suffixIcon: _dueDate == null
-                          ? const Icon(Icons.event_available_outlined)
-                          : IconButton(
-                              onPressed: () => setState(() => _dueDate = null),
-                              icon: const Icon(Icons.close_rounded),
-                            ),
-                    ),
-                    child: Text(
-                      _dueDate == null ? 'Opsional' : _formatDate(_dueDate!),
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 13),
-          TextField(
-            controller: _note,
-            textCapitalization: TextCapitalization.sentences,
-            maxLines: 3,
-            decoration: const InputDecoration(
-              labelText: 'Catatan (opsional)',
-              hintText: 'Tambahkan konteks atau janji pembayaran',
-            ),
-          ),
-          const SizedBox(height: 15),
-          _PhotoAttachment(
-            path: _imagePath,
-            onAdd: _chooseImage,
-            onRemove: _removeImage,
-            colors: colors,
-          ),
-          const SizedBox(height: 22),
-          SizedBox(
-            width: double.infinity,
-            height: 53,
-            child: FilledButton.icon(
-              onPressed: _saving ? null : _save,
-              style: FilledButton.styleFrom(
-                backgroundColor: _kind == DebtKind.payable ? _coral : _mint,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(15),
-                ),
-              ),
-              icon: _saving
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
-                    )
-                  : const Icon(Icons.check_rounded),
-              label: Text(
-                widget.entry == null ? 'Simpan catatan' : 'Simpan perubahan',
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SheetShell extends StatelessWidget {
-  const _SheetShell({required this.title, required this.child});
-  final String title;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final bottom = MediaQuery.viewInsetsOf(context).bottom;
-    final colors = Theme.of(context).colorScheme;
-    return Padding(
-      padding: EdgeInsets.only(bottom: bottom),
-      child: Material(
-        color: colors.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(25)),
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 13, 20, 24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Center(
-                child: Container(
-                  width: 44,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: colors.outline,
-                    borderRadius: BorderRadius.circular(99),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 19),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      title,
-                      style: TextStyle(
-                        color: colors.onSurface,
-                        fontSize: 23,
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                  ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close_rounded),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 14),
-              child,
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _PhotoAttachment extends StatelessWidget {
-  const _PhotoAttachment({
-    required this.path,
-    required this.onAdd,
-    required this.onRemove,
-    required this.colors,
-  });
-  final String? path;
-  final VoidCallback onAdd;
-  final VoidCallback onRemove;
-  final ColorScheme colors;
-
-  @override
-  Widget build(BuildContext context) {
-    final hasImage = path != null && path!.isNotEmpty;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Lampiran foto',
-          style: TextStyle(
-            color: colors.onSurface,
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 8),
-        if (hasImage)
-          ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: Stack(
-              children: [
-                SizedBox(
-                  height: 150,
-                  width: double.infinity,
-                  child: Image.file(
-                    File(path!),
-                    fit: BoxFit.cover,
-                    cacheWidth: 1200,
-                    cacheHeight: 500,
-                    errorBuilder: (context, error, stackTrace) => Container(
-                      color: colors.surfaceContainerHighest,
-                      child: const Icon(Icons.broken_image_outlined),
-                    ),
-                  ),
-                ),
-                Positioned(
-                  top: 9,
-                  right: 9,
-                  child: Row(
-                    children: [
-                      IconButton.filled(
-                        tooltip: 'Ganti foto',
-                        onPressed: onAdd,
-                        icon: const Icon(Icons.edit_rounded, size: 18),
-                      ),
-                      const SizedBox(width: 5),
-                      IconButton.filled(
-                        tooltip: 'Hapus foto',
-                        onPressed: onRemove,
-                        style: IconButton.styleFrom(
-                          backgroundColor: colors.error,
-                        ),
-                        icon: const Icon(
-                          Icons.delete_outline_rounded,
-                          size: 18,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          )
-        else
-          InkWell(
-            onTap: onAdd,
-            borderRadius: BorderRadius.circular(16),
-            child: Container(
-              width: double.infinity,
-              height: 82,
-              decoration: BoxDecoration(
-                color: colors.primary.withValues(alpha: 0.07),
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(
-                  color: colors.primary.withValues(alpha: 0.26),
-                ),
-              ),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.add_a_photo_outlined, color: colors.primary),
-                  const SizedBox(height: 5),
-                  Text(
-                    'Tambah foto dari galeri atau kamera',
-                    style: TextStyle(
-                      color: colors.primary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _ImageSourceSheet extends StatelessWidget {
-  const _ImageSourceSheet({required this.onSelected});
-  final ValueChanged<ImageSource> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Center(
-              child: Container(
-                width: 42,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: colors.outline,
-                  borderRadius: BorderRadius.circular(99),
-                ),
-              ),
-            ),
-            const SizedBox(height: 17),
-            Text(
-              'Pilih sumber foto',
-              style: TextStyle(
-                color: colors.onSurface,
-                fontSize: 18,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: _SourceButton(
-                    icon: Icons.photo_library_outlined,
-                    label: 'Galeri',
-                    onTap: () => onSelected(ImageSource.gallery),
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _SourceButton(
-                    icon: Icons.photo_camera_outlined,
-                    label: 'Kamera',
-                    onTap: () => onSelected(ImageSource.camera),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _SourceButton extends StatelessWidget {
-  const _SourceButton({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 19),
-        decoration: BoxDecoration(
-          color: colors.primary.withValues(alpha: 0.08),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Column(
-          children: [
-            Icon(icon, color: colors.primary, size: 28),
-            const SizedBox(height: 7),
-            Text(
-              label,
-              style: TextStyle(
-                color: colors.onSurface,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 enum RestoreMode { merge, replace }
 
-enum CommunicationChannel { whatsapp, sms }
 
-class CommunicationRequest {
-  const CommunicationRequest({required this.channel, required this.message});
 
-  final CommunicationChannel channel;
-  final String message;
-}
 
-class CommunicationSheet extends StatefulWidget {
-  const CommunicationSheet({super.key, required this.entry});
-  final DebtEntry entry;
 
-  @override
-  State<CommunicationSheet> createState() => _CommunicationSheetState();
-}
-
-class _CommunicationSheetState extends State<CommunicationSheet> {
-  late final TextEditingController _message;
-  CommunicationChannel _channel = CommunicationChannel.whatsapp;
-
-  @override
-  void initState() {
-    super.initState();
-    _message = TextEditingController(text: _defaultDebtMessage(widget.entry));
-  }
-
-  @override
-  void dispose() {
-    _message.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    final message = _message.text.trim();
-    if (message.isEmpty) return;
-    Navigator.pop(
-      context,
-      CommunicationRequest(channel: _channel, message: message),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final isWhatsApp = _channel == CommunicationChannel.whatsapp;
-    return _SheetShell(
-      title: 'Kirim pengingat',
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 11),
-            decoration: BoxDecoration(
-              color: colors.primary.withValues(alpha: 0.07),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: Row(
-              children: [
-                Icon(
-                  Icons.person_outline_rounded,
-                  color: colors.primary,
-                  size: 20,
-                ),
-                const SizedBox(width: 9),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        widget.entry.person,
-                        style: TextStyle(
-                          color: colors.onSurface,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        widget.entry.contactPhone ?? '',
-                        style: TextStyle(
-                          color: colors.onSurface.withValues(alpha: 0.58),
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 15),
-          SegmentedButton<CommunicationChannel>(
-            segments: const [
-              ButtonSegment(
-                value: CommunicationChannel.whatsapp,
-                label: Text('WhatsApp'),
-                icon: Icon(Icons.chat_rounded),
-              ),
-              ButtonSegment(
-                value: CommunicationChannel.sms,
-                label: Text('SMS'),
-                icon: Icon(Icons.sms_outlined),
-              ),
-            ],
-            selected: {_channel},
-            onSelectionChanged: (value) =>
-                setState(() => _channel = value.first),
-          ),
-          const SizedBox(height: 14),
-          TextField(
-            controller: _message,
-            maxLines: 6,
-            textCapitalization: TextCapitalization.sentences,
-            decoration: const InputDecoration(
-              labelText: 'Pesan',
-              alignLabelWithHint: true,
-              hintText: 'Tulis pesan pengingat...',
-            ),
-          ),
-          const SizedBox(height: 19),
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: FilledButton.icon(
-              onPressed: _submit,
-              style: FilledButton.styleFrom(
-                backgroundColor: isWhatsApp
-                    ? const Color(0xFF16A085)
-                    : colors.primary,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
-              ),
-              icon: Icon(isWhatsApp ? Icons.chat_rounded : Icons.sms_rounded),
-              label: Text(
-                isWhatsApp ? 'Buka WhatsApp' : 'Buka aplikasi SMS',
-                style: const TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-String _defaultDebtMessage(DebtEntry entry) {
-  final due = entry.dueDate == null
-      ? ''
-      : ' Jatuh tempo yang tercatat adalah ${_formatDate(entry.dueDate!)}.';
-  if (entry.kind == DebtKind.payable) {
-    return 'Halo ${entry.person}, saya ingin mengabari tentang hutang saya sebesar ${_formatCurrency(entry.amount)}.$due Terima kasih.';
-  }
-  return 'Halo ${entry.person}, izin mengingatkan tentang hutang sebesar ${_formatCurrency(entry.amount)}.$due Mohon kabari jika sudah ada waktu pembayarannya. Terima kasih.';
-}
-
-class ThemeSettingsSheet extends StatelessWidget {
-  const ThemeSettingsSheet({
-    super.key,
-    required this.selected,
-    required this.onSelected,
-  });
-  final ThemeMode selected;
-  final ValueChanged<ThemeMode> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    final options = [
-      (ThemeMode.system, 'Ikuti sistem', Icons.brightness_auto_rounded),
-      (ThemeMode.light, 'Terang', Icons.light_mode_rounded),
-      (ThemeMode.dark, 'Gelap', Icons.dark_mode_rounded),
-    ];
-    return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 14, 20, 18),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 42,
-                height: 4,
-                decoration: BoxDecoration(
-                  color: colors.outline,
-                  borderRadius: BorderRadius.circular(99),
-                ),
-              ),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              'Tampilan aplikasi',
-              style: TextStyle(
-                color: colors.onSurface,
-                fontSize: 20,
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 5),
-            Text(
-              'Pilih tema yang paling nyaman untukmu.',
-              style: TextStyle(
-                color: colors.onSurface.withValues(alpha: 0.6),
-                fontSize: 13,
-              ),
-            ),
-            const SizedBox(height: 13),
-            Column(
-              children: options
-                  .map<Widget>(
-                    (option) => RadioListTile<ThemeMode>(
-                      value: option.$1,
-                      groupValue: selected,
-                      onChanged: (value) {
-                        if (value != null) {
-                          onSelected(value);
-                          Navigator.pop(context);
-                        }
-                      },
-                      title: Text(
-                        option.$2,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                      secondary: Icon(option.$3, color: colors.primary),
-                      activeColor: colors.primary,
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                  )
-                  .toList(),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class CalculatorSheet extends StatefulWidget {
-  const CalculatorSheet({super.key});
-
-  @override
-  State<CalculatorSheet> createState() => _CalculatorSheetState();
-}
-
-class _CalculatorSheetState extends State<CalculatorSheet> {
-  String _expression = '';
-  String _result = '0';
-
-  void _tap(String value) {
-    setState(() {
-      if (value == 'C') {
-        _expression = '';
-        _result = '0';
-      } else if (value == '⌫') {
-        if (_expression.isNotEmpty)
-          _expression = _expression.substring(0, _expression.length - 1);
-      } else if (value == '=') {
-        final calculated = _calculateExpression(_expression);
-        if (calculated != null) _result = _formatNumber(calculated);
-      } else {
-        _expression += value;
-      }
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = Theme.of(context).colorScheme;
-    const keys = [
-      'C',
-      '⌫',
-      '÷',
-      '×',
-      '7',
-      '8',
-      '9',
-      '−',
-      '4',
-      '5',
-      '6',
-      '+',
-      '1',
-      '2',
-      '3',
-      '=',
-      '00',
-      '0',
-      '.',
-      '',
-    ];
-    return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-      child: Material(
-        color: colors.surface,
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(25)),
-        child: SafeArea(
-          top: false,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 13, 20, 22),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Center(
-                  child: Container(
-                    width: 44,
-                    height: 4,
-                    decoration: BoxDecoration(
-                      color: colors.outline,
-                      borderRadius: BorderRadius.circular(99),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 19),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Kalkulator cepat',
-                        style: TextStyle(
-                          color: colors.onSurface,
-                          fontSize: 21,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => Navigator.pop(context),
-                      icon: const Icon(Icons.close_rounded),
-                    ),
-                  ],
-                ),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.fromLTRB(18, 15, 18, 18),
-                  decoration: BoxDecoration(
-                    color: colors.primary.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      Text(
-                        _expression.isEmpty ? 'Masukkan angka' : _expression,
-                        style: TextStyle(
-                          color: colors.onSurface.withValues(alpha: 0.55),
-                          fontSize: 15,
-                        ),
-                      ),
-                      const SizedBox(height: 7),
-                      Text(
-                        _result,
-                        style: TextStyle(
-                          color: colors.onSurface,
-                          fontSize: 31,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 13),
-                GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: keys.length,
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 4,
-                    crossAxisSpacing: 9,
-                    mainAxisSpacing: 9,
-                    childAspectRatio: 1.55,
-                  ),
-                  itemBuilder: (context, index) {
-                    final label = keys[index];
-                    if (label.isEmpty) return const SizedBox.shrink();
-                    final isAction = [
-                      'C',
-                      '⌫',
-                      '÷',
-                      '×',
-                      '−',
-                      '+',
-                      '=',
-                    ].contains(label);
-                    return FilledButton(
-                      onPressed: () => _tap(label),
-                      style: FilledButton.styleFrom(
-                        backgroundColor: label == '='
-                            ? colors.primary
-                            : isAction
-                            ? colors.primary.withValues(alpha: 0.13)
-                            : colors.surfaceContainerHighest,
-                        foregroundColor: label == '='
-                            ? Colors.white
-                            : colors.onSurface,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(13),
-                        ),
-                      ),
-                      child: Text(
-                        label,
-                        style: TextStyle(
-                          fontSize: label == '⌫' ? 18 : 17,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-double? _calculateExpression(String expression) {
-  if (expression.isEmpty) return null;
-  final tokens = RegExp(
-    r'\d+(?:\.\d+)?|[+\-×÷]',
-  ).allMatches(expression).map((match) => match.group(0)!).toList();
-  if (tokens.isEmpty ||
-      tokens.first.length == 1 && '+−×÷'.contains(tokens.first))
-    return null;
-  try {
-    final values = <double>[double.parse(tokens.first)];
-    final lowOperators = <String>[];
-    for (var index = 1; index < tokens.length - 1; index += 2) {
-      final operator = tokens[index];
-      final number = double.parse(tokens[index + 1]);
-      if (operator == '×' || operator == '÷') {
-        if (operator == '÷' && number == 0) return null;
-        values[values.length - 1] = operator == '×'
-            ? values.last * number
-            : values.last / number;
-      } else {
-        values.add(number);
-        lowOperators.add(operator);
-      }
-    }
-    var result = values.first;
-    for (var index = 0; index < lowOperators.length; index++) {
-      result = lowOperators[index] == '+'
-          ? result + values[index + 1]
-          : result - values[index + 1];
-    }
-    return result.isFinite ? result : null;
-  } catch (_) {
-    return null;
-  }
-}
-
-Future<bool> _confirmDeleteEntry(BuildContext context, Object entry) async {
-  final label = entry is ExpenseEntry
-      ? entry.title
-      : entry is DebtEntry
-      ? entry.person
-      : 'catatan ini';
-  final result = await showDialog<bool>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: const Text('Hapus catatan?'),
-      content: Text(
-        'Catatan "$label" akan dihapus. Tindakan ini tidak bisa dibatalkan dari daftar utama.',
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext, false),
-          child: const Text('Batal'),
-        ),
-        FilledButton(
-          style: FilledButton.styleFrom(
-            backgroundColor: Theme.of(context).colorScheme.error,
-          ),
-          onPressed: () => Navigator.pop(dialogContext, true),
-          child: const Text('Hapus'),
-        ),
-      ],
-    ),
-  );
-  return result ?? false;
-}
-
-Future<String?> _pickEditStoreImage(
-  BuildContext context,
-  ImageAttachmentService service,
-  ImageSource source,
-) async {
-  final pickedPath = await service.pickAndStore(source: source);
-  if (pickedPath == null) return null;
-  final bytes = await File(pickedPath).readAsBytes();
-  if (!context.mounted) return pickedPath;
-  final edited = await Navigator.push<Uint8List>(
-    context,
-    MaterialPageRoute(builder: (_) => ImageEditor(image: bytes)),
-  );
-  if (edited == null) return pickedPath;
-  final editedPath = await service.storeBytes(edited);
-  await service.delete(pickedPath);
-  return editedPath;
-}
-
-String _formatCurrency(double value) =>
-    _privacyMode ? '••••••' : 'Rp ${_formatNumber(value)}';
-String _formatNumber(double value) {
-  final fixed = value.round().toString();
-  return fixed.replaceAllMapped(
-    RegExp(r'\B(?=(\d{3})+(?!\d))'),
-    (match) => '.',
-  );
-}
-
-double _parseAmount(String raw) {
-  final normalized = raw
-      .trim()
-      .replaceAll(' ', '')
-      .replaceAll('.', '')
-      .replaceAll(',', '.');
-  return double.tryParse(normalized) ?? 0;
-}
-
-String _newId() =>
-    '${DateTime.now().microsecondsSinceEpoch}_${math.Random().nextInt(9999)}';
-
-String _formatDate(DateTime date) {
-  const months = [
-    'Jan',
-    'Feb',
-    'Mar',
-    'Apr',
-    'Mei',
-    'Jun',
-    'Jul',
-    'Agu',
-    'Sep',
-    'Okt',
-    'Nov',
-    'Des',
-  ];
-  return '${date.day} ${months[date.month - 1]} ${date.year}';
-}
-
-String _categoryLabel(ExpenseCategory category) {
-  const labels = {
-    ExpenseCategory.food: 'Makanan',
-    ExpenseCategory.transport: 'Transportasi',
-    ExpenseCategory.shopping: 'Belanja',
-    ExpenseCategory.bills: 'Tagihan',
-    ExpenseCategory.health: 'Kesehatan',
-    ExpenseCategory.entertainment: 'Hiburan',
-    ExpenseCategory.other: 'Lainnya',
-  };
-  return labels[category]!;
-}
-
-IconData _categoryIcon(ExpenseCategory category) {
-  const icons = {
-    ExpenseCategory.food: Icons.restaurant_rounded,
-    ExpenseCategory.transport: Icons.directions_car_filled_rounded,
-    ExpenseCategory.shopping: Icons.shopping_bag_rounded,
-    ExpenseCategory.bills: Icons.receipt_rounded,
-    ExpenseCategory.health: Icons.medical_services_rounded,
-    ExpenseCategory.entertainment: Icons.movie_rounded,
-    ExpenseCategory.other: Icons.more_horiz_rounded,
-  };
-  return icons[category]!;
-}
-
-Color _categoryColor(ExpenseCategory category, ColorScheme colors) {
-  const palette = {
-    ExpenseCategory.food: Color(0xFFF97316),
-    ExpenseCategory.transport: Color(0xFF3B82F6),
-    ExpenseCategory.shopping: Color(0xFF8B5CF6),
-    ExpenseCategory.bills: Color(0xFF0EA5E9),
-    ExpenseCategory.health: Color(0xFFEF4444),
-    ExpenseCategory.entertainment: Color(0xFFEC4899),
-    ExpenseCategory.other: Color(0xFF64748B),
-  };
-  return palette[category]!;
-}

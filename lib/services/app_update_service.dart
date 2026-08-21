@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
@@ -15,6 +16,8 @@ class AppUpdateInfo {
     required this.universalApkUrl,
     required this.arm64ApkUrl,
     this.releaseNotes = '',
+    this.sha256Universal = '',
+    this.sha256Arm64 = '',
   });
 
   final String version;
@@ -22,6 +25,11 @@ class AppUpdateInfo {
   final String universalApkUrl;
   final String arm64ApkUrl;
   final String releaseNotes;
+
+  /// Checksum SHA256 opsional (hex). Bila metadata menyediakan nilai ini,
+  /// APK hasil unduhan wajib cocok sebelum proses instalasi dilanjutkan.
+  final String sha256Universal;
+  final String sha256Arm64;
 
   factory AppUpdateInfo.fromJson(Map<String, dynamic> json) {
     String readUrl(String primary, String fallback) =>
@@ -32,6 +40,10 @@ class AppUpdateInfo {
       universalApkUrl: readUrl('universalApkUrl', 'universalUrl'),
       arm64ApkUrl: readUrl('arm64ApkUrl', 'downloadUrl'),
       releaseNotes: readString(json['releaseNotes']),
+      sha256Universal: readString(
+        json['sha256Universal'] ?? json['universalSha256'],
+      ),
+      sha256Arm64: readString(json['sha256Arm64'] ?? json['arm64Sha256']),
     );
   }
 }
@@ -46,8 +58,26 @@ class AppUpdateService {
       'https://raw.githubusercontent.com/XbibzOfficial777/catatan-pengeluaran/main/version-latest.json';
   static const _channel = MethodChannel('catatan/app_update');
 
+  /// Host yang diizinkan sebagai sumber unduhan APK. Metadata update diambil
+  /// dari repo ini, jadi APK juga harus berasal dari domain GitHub resmi —
+  /// menutup jalur injeksi URL arbitrer bila akun/berkas metadata disusupi.
+  static const _allowedApkHosts = <String>{
+    'github.com',
+    'objects.githubusercontent.com',
+    'release-assets.githubusercontent.com',
+    'github-releases.githubusercontent.com',
+  };
+
   bool get supportsApkInstall =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+
+  @visibleForTesting
+  static bool isAllowedApkUrl(Uri url) {
+    if (url.scheme != 'https') return false;
+    final host = url.host.toLowerCase();
+    if (_allowedApkHosts.contains(host)) return true;
+    return host.endsWith('.githubusercontent.com') || host.endsWith('.github.com');
+  }
 
   Future<AppUpdateInfo> checkLatest() async {
     try {
@@ -75,8 +105,7 @@ class AppUpdateService {
 
   AppUpdateInfo _parseMetadata(String text) {
     final decoded = jsonDecode(text);
-    if (decoded is! Map)
-      throw const FormatException('Format update tidak valid.');
+    if (decoded is! Map) throw const FormatException('Format update tidak valid.');
     return AppUpdateInfo.fromJson(Map<String, dynamic>.from(decoded));
   }
 
@@ -91,11 +120,10 @@ class AppUpdateService {
       if (preferArm64) info.universalApkUrl else info.arm64ApkUrl,
     }..removeWhere((url) => url.isEmpty);
     if (urls.isEmpty) {
-      throw const FormatException(
-        'URL APK belum tersedia di version-latest.json.',
-      );
+      throw const FormatException('URL APK belum tersedia di version-latest.json.');
     }
     final directory = await getTemporaryDirectory();
+    // Sanitasi nama versi dari metadata agar tidak bisa menyuntik path.
     final safeVersion = info.version.replaceAll(
       RegExp(r'[^0-9A-Za-z._-]'),
       '_',
@@ -103,25 +131,22 @@ class AppUpdateService {
     final file = File(
       '${directory.path}/catatan_pengeluaran_update_$safeVersion.apk',
     );
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 12);
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
     try {
       HttpException? lastHttpError;
       for (final url in urls) {
         final parsedUrl = Uri.tryParse(url);
-        if (parsedUrl == null || !parsedUrl.hasScheme) {
-          lastHttpError = HttpException('URL APK tidak valid: $url');
+        if (parsedUrl == null || !isAllowedApkUrl(parsedUrl)) {
+          lastHttpError = HttpException(
+            'URL APK tidak valid atau bukan https GitHub resmi: $url',
+          );
           continue;
         }
         try {
-          final request = await client
-              .getUrl(parsedUrl)
-              .timeout(const Duration(seconds: 15));
+          final request = await client.getUrl(parsedUrl).timeout(const Duration(seconds: 15));
           request.followRedirects = true;
           request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
-          final response = await request.close().timeout(
-            const Duration(seconds: 30),
-          );
+          final response = await request.close().timeout(const Duration(seconds: 30));
           if (response.statusCode < 200 || response.statusCode >= 300) {
             lastHttpError = HttpException(
               'Download APK HTTP ${response.statusCode} dari $url. Pastikan GitHub Release memiliki asset APK tersebut.',
@@ -143,13 +168,20 @@ class AppUpdateService {
             await sink.close();
           }
           if (received == 0) throw const FileSystemException('APK kosong.');
+          final checksumError = await _verifyChecksum(file, url, info);
+          if (checksumError != null) {
+            lastHttpError = HttpException(checksumError);
+            try {
+              await file.delete();
+            } catch (_) {}
+            continue;
+          }
           return file.path;
         } on HttpException catch (error) {
           lastHttpError = error;
         }
       }
-      throw lastHttpError ??
-          const HttpException('Semua URL APK gagal diakses.');
+      throw lastHttpError ?? const HttpException('Semua URL APK gagal diakses.');
     } finally {
       client.close(force: true);
     }
@@ -157,6 +189,32 @@ class AppUpdateService {
 
   Future<void> installApk(String path) async {
     await _channel.invokeMethod<void>('install_apk', {'path': path});
+  }
+
+  /// Verifikasi checksum SHA256 APK unduhan bila metadata menyediakannya.
+  ///
+  /// Mengembalikan null bila checksum cocok atau tidak tersedia (kompatibilitas
+  /// metadata lama), atau pesan error bila tidak cocok.
+  @visibleForTesting
+  static Future<String?> verifyApkChecksum(File file, String downloadedUrl, AppUpdateInfo info) {
+    return _verifyChecksum(file, downloadedUrl, info);
+  }
+
+  static Future<String?> _verifyChecksum(
+    File file,
+    String downloadedUrl,
+    AppUpdateInfo info,
+  ) async {
+    final expected = downloadedUrl == info.arm64ApkUrl
+        ? info.sha256Arm64
+        : info.sha256Universal;
+    if (expected.isEmpty) return null;
+    final digest = sha256.convert(await file.readAsBytes()).toString();
+    if (digest != expected.toLowerCase()) {
+      return 'Checksum APK tidak cocok (harapan ${expected.toLowerCase().substring(0, 12)}…, '
+          'hasil ${digest.substring(0, 12)}…). Unduhan dibatalkan demi keamanan.';
+    }
+    return null;
   }
 
   Future<void> cleanupDownloadedApks() async {
@@ -176,18 +234,13 @@ class AppUpdateService {
   }
 
   Future<String> _getText(String url) async {
-    final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 10);
+    final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
     try {
-      final request = await client
-          .getUrl(Uri.parse(url))
-          .timeout(const Duration(seconds: 12));
+      final request = await client.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 12));
       request.followRedirects = true;
       request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      final response = await request.close().timeout(
-        const Duration(seconds: 15),
-      );
+      final response = await request.close().timeout(const Duration(seconds: 15));
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpException('Update check HTTP ${response.statusCode}');
       }

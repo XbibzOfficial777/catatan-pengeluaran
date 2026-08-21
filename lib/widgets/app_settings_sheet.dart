@@ -7,6 +7,7 @@ class AppSettingsSheet extends StatefulWidget {
     required this.cacheInfo,
     required this.onLanguageChanged,
     required this.onBackup,
+    this.onBackupToDrive,
     required this.onRestore,
     required this.onCheckUpdate,
     required this.onClearCache,
@@ -18,6 +19,7 @@ class AppSettingsSheet extends StatefulWidget {
   final String cacheInfo;
   final ValueChanged<String> onLanguageChanged;
   final VoidCallback onBackup;
+  final VoidCallback? onBackupToDrive;
   final VoidCallback onRestore;
   final Future<void> Function() onCheckUpdate;
   final Future<void> Function() onClearCache;
@@ -146,6 +148,16 @@ class _AppSettingsSheetState extends State<AppSettingsSheet> {
                 subtitle: t('Simpan file .bibzcup yang aman.', 'Save a protected .bibzcup file.'),
                 onTap: widget.onBackup,
               ),
+              if (widget.onBackupToDrive != null)
+                _SettingsAction(
+                  icon: Icons.cloud_upload_outlined,
+                  title: t('Backup ke Google Drive', 'Back up to Google Drive'),
+                  subtitle: t(
+                    'Bagikan arsip .bibzcup melalui menu berbagi.',
+                    'Share the .bibzcup archive via the share sheet.',
+                  ),
+                  onTap: widget.onBackupToDrive,
+                ),
               _SettingsAction(
                 icon: Icons.restore_rounded,
                 title: t('Restore data', 'Restore data'),

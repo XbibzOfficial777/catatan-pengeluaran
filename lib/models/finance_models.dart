@@ -12,6 +12,49 @@ enum ExpenseCategory {
 
 enum DebtKind { payable, receivable }
 
+/// Label tampilan tunggal untuk kategori pengeluaran.
+///
+/// Dipusatkan di model agar UI, export Excel, dan PDF konsisten
+/// (sebelumnya ada dua definisi berbeda: 'Makan' vs 'Makanan').
+extension ExpenseCategoryLabel on ExpenseCategory {
+  String get label => switch (this) {
+    ExpenseCategory.food => 'Makanan',
+    ExpenseCategory.transport => 'Transportasi',
+    ExpenseCategory.shopping => 'Belanja',
+    ExpenseCategory.bills => 'Tagihan',
+    ExpenseCategory.health => 'Kesehatan',
+    ExpenseCategory.entertainment => 'Hiburan',
+    ExpenseCategory.other => 'Lainnya',
+  };
+}
+
+String categoryLabel(ExpenseCategory category) => category.label;
+
+/// ID fallback yang stabil (deterministik dari isi entry) untuk data lama
+/// atau hasil restore yang kehilangan field `id`. Stabilitas penting supaya
+/// entry yang sama tidak diduplikasi saat merge restore dijalankan ulang.
+String _stableFallbackId(
+  Map<String, dynamic> json, {
+  required String prefix,
+}) {
+  final declared = json['id'];
+  if (declared is String && declared.isNotEmpty) return declared;
+  // Toleran terhadap id lama yang tersimpan sebagai angka (lihat json_helpers).
+  if (declared is num) return declared.toString();
+  final signature = [
+    prefix,
+    json['title'] ?? json['person'] ?? '',
+    json['date'] ?? '',
+    json['amount'] ?? '',
+    json['note'] ?? '',
+  ].join('|');
+  var digest = 0;
+  for (final unit in signature.codeUnits) {
+    digest = ((digest * 31) + unit) & 0x7fffffff;
+  }
+  return '${prefix}_recovered_$digest';
+}
+
 class ExpenseEntry {
   const ExpenseEntry({
     required this.id,
@@ -87,10 +130,7 @@ class ExpenseEntry {
       fallback: ExpenseCategory.other.name,
     );
     return ExpenseEntry(
-      id: readString(
-        json['id'],
-        fallback: DateTime.now().microsecondsSinceEpoch.toString(),
-      ),
+      id: _stableFallbackId(json, prefix: 'expense'),
       title: readString(json['title'], fallback: 'Pengeluaran'),
       amount: roundMoney(readDouble(json['amount'])),
       category: readEnum(
@@ -189,10 +229,7 @@ class DebtEntry {
   factory DebtEntry.fromJson(Map<String, dynamic> json) {
     final kindName = readString(json['kind'], fallback: DebtKind.payable.name);
     return DebtEntry(
-      id: readString(
-        json['id'],
-        fallback: DateTime.now().microsecondsSinceEpoch.toString(),
-      ),
+      id: _stableFallbackId(json, prefix: 'debt'),
       person: readString(json['person'], fallback: 'Kontak'),
       amount: roundMoney(readDouble(json['amount'])),
       kind: readEnum(DebtKind.values, kindName, DebtKind.payable),
