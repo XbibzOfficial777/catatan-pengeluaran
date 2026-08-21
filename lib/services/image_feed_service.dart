@@ -16,7 +16,11 @@ class ImageFeedSnapshot {
 }
 
 class ImageFeedService {
-  static const sourceUrl = 'https://pastebin.com/raw/ytnu2NLD';
+  /// Sumber daftar gambar dashboard dikendalikan dari repo aplikasi ini,
+  /// bukan layanan pihak ketiga, supaya jalur pembaruan konten sejalan dengan
+  /// jalur pembaruan kode (raw GitHub dari branch main).
+  static const sourceUrl =
+      'https://raw.githubusercontent.com/XbibzOfficial777/catatan-pengeluaran/main/dashboard-feed.txt';
   static const _cachedUrlsKey = 'dashboard_image_urls_v1';
   static const _cachedAtKey = 'dashboard_image_urls_cached_at_v1';
   static const fallbackUrls = <String>[];
@@ -81,7 +85,7 @@ class ImageFeedService {
         const Duration(seconds: 8),
       );
       if (response.statusCode < 200 || response.statusCode >= 300) {
-        throw HttpException('Pastebin HTTP ${response.statusCode}');
+        throw HttpException('Feed HTTP ${response.statusCode}');
       }
       final text = await response
           .transform(utf8.decoder)

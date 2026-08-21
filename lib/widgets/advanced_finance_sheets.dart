@@ -12,15 +12,8 @@ const _brandOptions = <String, String>{
   'linkaja': 'LinkAja',
 };
 
-String categoryLabel(ExpenseCategory category) => switch (category) {
-  ExpenseCategory.food => 'Makan',
-  ExpenseCategory.transport => 'Transportasi',
-  ExpenseCategory.shopping => 'Belanja',
-  ExpenseCategory.bills => 'Tagihan',
-  ExpenseCategory.health => 'Kesehatan',
-  ExpenseCategory.entertainment => 'Hiburan',
-  ExpenseCategory.other => 'Lainnya',
-};
+// categoryLabel() kini dipusatkan di models/finance_models.dart
+// (extension ExpenseCategoryLabel) agar UI dan export memakai label sama.
 
 class BudgetSettingsSheet extends StatefulWidget {
   const BudgetSettingsSheet({super.key, required this.initialBudgets});

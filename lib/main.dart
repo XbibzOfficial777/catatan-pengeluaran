@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
@@ -401,14 +402,23 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     final savings = await _storage.loadSavingsGoals();
     final privacy = await _storage.loadPrivacyMode();
     final languageCode = await _storage.loadLanguage();
-    final generated = _advancedService.materializeDueRecurring(
-      recurring: recurring,
-      now: DateTime.now(),
-      existing: expenses,
-    );
-    if (generated.isNotEmpty) {
-      expenses.addAll(generated);
-      await _storage.saveExpenses(expenses);
+    final storageReport = _storage.consumeCorruptionReport();
+    final reminderReport = _reminderStorage.consumeCorruptionReport();
+    // Data yang rusak total sudah dikarantina. Jangan pernah menulis ulang
+    // koleksi kosong hasil kegagalan baca: materialisasi pengeluaran berulang
+    // akan menganggap semua sudah hilang dan menimpa karantina dengan data baru.
+    final hasUnreadableData =
+        storageReport.hasUnreadableData || reminderReport.hasUnreadableData;
+    if (!hasUnreadableData) {
+      final generated = _advancedService.materializeDueRecurring(
+        recurring: recurring,
+        now: DateTime.now(),
+        existing: expenses,
+      );
+      if (generated.isNotEmpty) {
+        expenses.addAll(generated);
+        await _storage.saveExpenses(expenses);
+      }
     }
     try {
       await ReminderService.instance.syncAll(_allReminderSchedules(reminders, savings));
@@ -431,6 +441,35 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       _isLoading = false;
     });
     await _syncHomeWidget();
+    if (hasUnreadableData && mounted) {
+      await showDialog<void>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Data lokal terdeteksi rusak'),
+          content: const Text(
+            'Sebagian data tidak dapat dibaca dan salinan mentahnya telah disimpan otomatis dalam karantina internal. '
+            'Pengeluaran berulang sementara tidak diaktifkan otomatis agar data rusak tidak tertimpa.\n\n'
+            'Disarankan segera memulihkan data dari file backup terakhir (.bibzcup) melalui menu Pengaturan → Restore backup.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Mengerti'),
+            ),
+          ],
+        ),
+      );
+    } else if ((storageReport.hasPartialDamage ||
+            reminderReport.hasPartialDamage) &&
+        mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Beberapa catatan rusak dilewati saat memuat data. Salinan mentah disimpan untuk pemeriksaan.',
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _syncHomeWidget() async {
@@ -986,7 +1025,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         accounts: _accounts,
       ),
     );
-    if (result == null) return;
+    if (result == null || !mounted) return;
     setState(() {
       final index = _expenses.indexWhere((item) => item.id == result.id);
       if (index == -1) {
@@ -1012,7 +1051,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         contactService: _contactService,
       ),
     );
-    if (result == null) return;
+    if (result == null || !mounted) return;
     setState(() {
       final index = _debts.indexWhere((item) => item.id == result.id);
       if (index == -1) {
@@ -1028,9 +1067,22 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   Future<void> _deleteExpense(ExpenseEntry entry) async {
     setState(() => _expenses.removeWhere((item) => item.id == entry.id));
     await _saveExpenses();
-    await _imageService.delete(entry.imagePath);
-    if (!mounted) return;
+    if (!mounted) {
+      // Halaman sudah tidak aktif sehingga undo tidak lagi mungkin.
+      await _imageService.delete(entry.imagePath);
+      return;
+    }
+    // File lampiran dihapus setelah jendela undo berlalu, bukan segera,
+    // supaya tombol URUNGKAN tidak mengembalikan entry dengan path foto yang
+    // sudah tidak ada (lampiran menggantung).
+    var undone = false;
+    final pendingDelete = Timer(const Duration(seconds: 6), () {
+      if (!undone) _imageService.delete(entry.imagePath);
+    });
     _showUndoSnackBar('Pengeluaran dihapus', () {
+      undone = true;
+      pendingDelete.cancel();
+      if (!mounted) return;
       setState(() => _expenses = [entry, ..._expenses]);
       _saveExpenses();
     });
@@ -1039,9 +1091,18 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   Future<void> _deleteDebt(DebtEntry entry) async {
     setState(() => _debts.removeWhere((item) => item.id == entry.id));
     await _saveDebts();
-    await _imageService.delete(entry.imagePath);
-    if (!mounted) return;
+    if (!mounted) {
+      await _imageService.delete(entry.imagePath);
+      return;
+    }
+    var undone = false;
+    final pendingDelete = Timer(const Duration(seconds: 6), () {
+      if (!undone) _imageService.delete(entry.imagePath);
+    });
     _showUndoSnackBar('Catatan hutang dihapus', () {
+      undone = true;
+      pendingDelete.cancel();
+      if (!mounted) return;
       setState(() => _debts = [entry, ..._debts]);
       _saveDebts();
     });
@@ -1148,7 +1209,37 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
 
   Future<void> _restoreBackup() async {
     try {
-      final payload = await _transferService.pickAndRestore();
+      RestorePayload? payload;
+      try {
+        payload = await _transferService.pickAndRestore();
+      } on CrossDeviceBackupException catch (error) {
+        if (!mounted) return;
+        final proceed = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: const Text('Backup dari perangkat lain'),
+            content: const Text(
+              'Backup ini dibuat di perangkat berbeda sehingga tanda tangan perangkat tidak bisa diverifikasi di sini.\n\n'
+              'Isi file tetap akan diperiksa dengan checksum SHA256. Lanjutkan restore?',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Batal'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Lanjutkan'),
+              ),
+            ],
+          ),
+        );
+        if (proceed != true || !mounted) return;
+        payload = await _transferService.restoreFromFile(
+          error.sourcePath,
+          allowCrossDevice: true,
+        );
+      }
       if (payload == null || !mounted) return;
       final mode = await showDialog<RestoreMode>(
         context: context,
@@ -4658,18 +4749,7 @@ String _formatDate(DateTime date) {
   return '${date.day} ${months[date.month - 1]} ${date.year}';
 }
 
-String _categoryLabel(ExpenseCategory category) {
-  const labels = {
-    ExpenseCategory.food: 'Makanan',
-    ExpenseCategory.transport: 'Transportasi',
-    ExpenseCategory.shopping: 'Belanja',
-    ExpenseCategory.bills: 'Tagihan',
-    ExpenseCategory.health: 'Kesehatan',
-    ExpenseCategory.entertainment: 'Hiburan',
-    ExpenseCategory.other: 'Lainnya',
-  };
-  return labels[category]!;
-}
+String _categoryLabel(ExpenseCategory category) => category.label;
 
 IconData _categoryIcon(ExpenseCategory category) {
   const icons = {

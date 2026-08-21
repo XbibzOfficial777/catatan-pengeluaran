@@ -8,7 +8,51 @@ enum ExpenseCategory {
   other,
 }
 
+/// Label tampilan tunggal untuk kategori pengeluaran.
+///
+/// Sebelumnya ada dua definisi berbeda ('Makan' vs 'Makanan') di
+/// main.dart, advanced_finance_sheets.dart, dan data_transfer_service.dart.
+/// Label kini dipusatkan di model agar UI, export Excel, dan PDF konsisten.
+extension ExpenseCategoryLabel on ExpenseCategory {
+  String get label => switch (this) {
+    ExpenseCategory.food => 'Makanan',
+    ExpenseCategory.transport => 'Transportasi',
+    ExpenseCategory.shopping => 'Belanja',
+    ExpenseCategory.bills => 'Tagihan',
+    ExpenseCategory.health => 'Kesehatan',
+    ExpenseCategory.entertainment => 'Hiburan',
+    ExpenseCategory.other => 'Lainnya',
+  };
+}
+
+String categoryLabel(ExpenseCategory category) => category.label;
+
 enum DebtKind { payable, receivable }
+
+/// ID fallback yang stabil (deterministik dari isi entry) untuk data lama
+/// atau hasil restore yang kehilangan field `id`.
+///
+/// Stabilitas penting supaya entry yang sama tidak diduplikasi saat
+/// merge restore dijalankan dua kali.
+String _stableFallbackId(
+  Map<String, dynamic> json, {
+  required String prefix,
+}) {
+  final declared = json['id'];
+  if (declared is String && declared.isNotEmpty) return declared;
+  final signature = [
+    prefix,
+    json['title'] ?? json['person'] ?? '',
+    json['date'] ?? '',
+    json['amount'] ?? '',
+    json['note'] ?? '',
+  ].join('|');
+  var digest = 0;
+  for (final unit in signature.codeUnits) {
+    digest = ((digest * 31) + unit) & 0x7fffffff;
+  }
+  return '${prefix}_recovered_$digest';
+}
 
 class ExpenseEntry {
   const ExpenseEntry({
@@ -83,7 +127,7 @@ class ExpenseEntry {
     final categoryName =
         json['category'] as String? ?? ExpenseCategory.other.name;
     return ExpenseEntry(
-      id: json['id'] as String,
+      id: _stableFallbackId(json, prefix: 'expense'),
       title: json['title'] as String? ?? 'Pengeluaran',
       amount: (json['amount'] as num?)?.toDouble() ?? 0,
       category: ExpenseCategory.values.firstWhere(
@@ -183,7 +227,7 @@ class DebtEntry {
   factory DebtEntry.fromJson(Map<String, dynamic> json) {
     final kindName = json['kind'] as String? ?? DebtKind.payable.name;
     return DebtEntry(
-      id: json['id'] as String,
+      id: _stableFallbackId(json, prefix: 'debt'),
       person: json['person'] as String? ?? 'Kontak',
       amount: (json['amount'] as num?)?.toDouble() ?? 0,
       kind: DebtKind.values.firstWhere(

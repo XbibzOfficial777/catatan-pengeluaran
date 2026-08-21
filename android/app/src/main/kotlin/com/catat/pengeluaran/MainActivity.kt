@@ -1,6 +1,9 @@
 package com.catat.pengeluaran
 
 import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.core.content.FileProvider
 import java.io.File
 import io.flutter.embedding.android.FlutterActivity
@@ -31,6 +34,17 @@ class MainActivity : FlutterActivity() {
                     result.error("FILE_NOT_FOUND", "APK tidak ditemukan", null)
                     return@setMethodCallHandler
                 }
+                // Pertahanan terakhir sebelum memicu installer sistem: APK pembaruan
+                // wajib ditandatangani kunci yang sama dengan aplikasi terpasang.
+                // Tanpa ini, metadata yang disusupi bisa memasang APK apa pun.
+                if (!signaturesMatch(apkFile)) {
+                    result.error(
+                        "SIGNATURE_MISMATCH",
+                        "Tanda tangan APK pembaruan tidak cocok dengan aplikasi terpasang. Unduhan ditolak.",
+                        null,
+                    )
+                    return@setMethodCallHandler
+                }
                 val uri = FileProvider.getUriForFile(
                     this,
                     "${applicationContext.packageName}.fileprovider",
@@ -47,6 +61,48 @@ class MainActivity : FlutterActivity() {
                 result.error("INSTALL_FAILED", error.message, null)
             }
         }
+    }
+
+    /**
+     * Membandingkan sertifikat signing APK unduhan dengan aplikasi terpasang.
+     * Mengembalikan false pada kegagalan apa pun agar hanya APK terverifikasi
+     * yang boleh masuk ke alur instalasi.
+     */
+    private fun signaturesMatch(apkFile: File): Boolean {
+        return try {
+            val archiveInfo = packageArchiveInfo(apkFile.path) ?: return false
+            val archiveSignatures = signaturesOf(archiveInfo) ?: return false
+            val installedInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNING_CERTIFICATES)
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, PackageManager.GET_SIGNATURES)
+            }
+            val installedSignatures = signaturesOf(installedInfo) ?: return false
+            archiveSignatures == installedSignatures
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    private fun packageArchiveInfo(path: String): PackageInfo? {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            packageManager.getPackageArchiveInfo(path, PackageManager.GET_SIGNING_CERTIFICATES)
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageArchiveInfo(path, PackageManager.GET_SIGNATURES)
+        }
+    }
+
+    private fun signaturesOf(info: PackageInfo): Set<String>? {
+        val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.signingInfo?.apkContentsSigners
+        } else {
+            @Suppress("DEPRECATION")
+            info.signatures
+        }
+        if (signatures == null || signatures.isEmpty()) return null
+        return signatures.map { it.toCharsString() }.toSet()
     }
 
     override fun onNewIntent(intent: Intent) {
