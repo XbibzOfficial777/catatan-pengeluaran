@@ -38,6 +38,8 @@ class AppUpdateService {
   AppUpdateService._();
   static final instance = AppUpdateService._();
 
+  static const latestJsonApiUrl =
+      'https://api.github.com/repos/XbibzOfficial777/catatan-pengeluaran/contents/version-latest.json?ref=main';
   static const latestJsonUrl =
       'https://raw.githubusercontent.com/XbibzOfficial777/catatan-pengeluaran/main/version-latest.json';
   static const _channel = MethodChannel('catatan/app_update');
@@ -46,12 +48,30 @@ class AppUpdateService {
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
   Future<AppUpdateInfo> checkLatest() async {
+    try {
+      final apiText = await _getText(latestJsonApiUrl);
+      final apiDecoded = jsonDecode(apiText);
+      if (apiDecoded is Map && apiDecoded['content'] is String) {
+        final encoded = (apiDecoded['content'] as String).replaceAll('\n', '');
+        final metadataText = utf8.decode(base64.decode(encoded));
+        return _parseMetadata(metadataText);
+      }
+      if (apiDecoded is Map) {
+        return AppUpdateInfo.fromJson(Map<String, dynamic>.from(apiDecoded));
+      }
+    } catch (_) {
+      // Fall back to raw GitHub when the Contents API is unavailable.
+    }
+
     final cacheBustedUrl = Uri.parse(latestJsonUrl).replace(
       queryParameters: <String, String>{
         'cacheBust': DateTime.now().millisecondsSinceEpoch.toString(),
       },
     );
-    final text = await _getText(cacheBustedUrl.toString());
+    return _parseMetadata(await _getText(cacheBustedUrl.toString()));
+  }
+
+  AppUpdateInfo _parseMetadata(String text) {
     final decoded = jsonDecode(text);
     if (decoded is! Map) throw const FormatException('Format update tidak valid.');
     return AppUpdateInfo.fromJson(Map<String, dynamic>.from(decoded));
