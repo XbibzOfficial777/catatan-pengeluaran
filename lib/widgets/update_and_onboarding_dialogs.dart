@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown_plus/flutter_markdown_plus.dart';
 
 class FirstRunOnboardingDialog extends StatefulWidget {
   const FirstRunOnboardingDialog({super.key});
@@ -180,11 +181,31 @@ class ChangelogDialog extends StatelessWidget {
       content: ConstrainedBox(
         constraints: const BoxConstraints(maxHeight: 430),
         child: SingleChildScrollView(
-          child: SelectableText(
-            content.trim().isEmpty
+          child: MarkdownBody(
+            data: content.trim().isEmpty
                 ? 'Perbaikan dan peningkatan stabilitas aplikasi.'
                 : content.trim(),
-            style: const TextStyle(height: 1.45),
+            selectable: true,
+            styleSheet: MarkdownStyleSheet.fromTheme(Theme.of(context))
+                .copyWith(
+                  p: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(height: 1.45),
+                  h1: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w900,
+                  ),
+                  h2: Theme.of(
+                    context,
+                  ).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w900),
+                  h3: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                  listBullet: TextStyle(color: colors.primary),
+                  blockquote: TextStyle(
+                    color: colors.onSurface.withValues(alpha: 0.72),
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
           ),
         ),
       ),

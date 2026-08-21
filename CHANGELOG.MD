@@ -2,6 +2,14 @@
 
 Semua perubahan penting pada **Catatan Pengeluaran** dicatat di dokumen ini.
 
+## [1.3.8] - 2026-08-21
+
+### Improved
+
+- Changelog sekarang dirender sebagai Markdown di dalam aplikasi, termasuk heading, daftar, penekanan, code, dan blockquote.
+- Renderer Markdown memakai `flutter_markdown_plus` versi 1.0.7 yang kompatibel dengan Dart 3.8.1/FlutLab.
+- Dialog changelog tetap scrollable dan teksnya dapat dipilih untuk disalin.
+
 ## [1.3.7] - 2026-08-21
 
 ### Fixed
