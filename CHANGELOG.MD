@@ -7,7 +7,7 @@ Semua perubahan penting pada **Catatan Pengeluaran** dicatat di dokumen ini.
 ### Test Release
 
 - Rilis pengujian updater dari versi 1.3.9 ke 1.4.0.
-- Metadata menggunakan versionCode 19 sehingga dapat dibandingkan secara numerik oleh updater Android.
+- Metadata memakai versionCode arm64-v8a `2019` dan menyimpan baseVersionCode `19`, sehingga APK arm64 lama dengan build `2018` dapat mendeteksi update 1.4.0.
 - Asset universal dan arm64-v8a tetap tersedia untuk menguji pemilihan arsitektur otomatis.
 
 ## [1.3.9] - 2026-08-21
