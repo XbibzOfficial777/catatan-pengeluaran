@@ -26,7 +26,7 @@ subprojects {
 subprojects {
     if (name == "file_picker") {
         tasks.withType<KotlinCompile>().configureEach {
-            compilerOptions.jvmTarget.set(JvmTarget.JVM_11)
+            compilerOptions.jvmTarget.set(JvmTarget.JVM_17)
         }
     }
 }
