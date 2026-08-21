@@ -1,6 +1,6 @@
 {
-  "version": "1.3.4",
-  "versionCode": 21,
+  "version": "1.3.2",
+  "versionCode": 11,
   "releaseNotes": "Perbaikan updater aplikasi, restore .bibzcup, cache-busting metadata, dan fallback download GitHub Release.",
   "universalApkUrl": "https://github.com/XbibzOfficial777/catatan-pengeluaran/releases/latest/download/Catatan-Pengeluaran-universal.apk",
   "arm64ApkUrl": "https://github.com/XbibzOfficial777/catatan-pengeluaran/releases/latest/download/Catatan-Pengeluaran-arm64-v8a.apk"
