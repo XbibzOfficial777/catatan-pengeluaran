@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
-import '../core/categories.dart';
 import '../core/format.dart';
 import '../models/advanced_finance_models.dart';
 import '../models/finance_models.dart';

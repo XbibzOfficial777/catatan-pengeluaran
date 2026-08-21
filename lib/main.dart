@@ -8,7 +8,6 @@ import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
-import 'core/categories.dart';
 import 'core/format.dart';
 import 'core/palette.dart';
 import 'forms/debt_form_sheet.dart';
@@ -17,9 +16,7 @@ import 'models/finance_models.dart';
 import 'models/json_helpers.dart';
 import 'widgets/calculator_sheet.dart';
 import 'widgets/communication_sheet.dart';
-import 'widgets/entry_actions.dart';
 import 'widgets/finance_tiles.dart';
-import 'widgets/form_scaffolding.dart';
 import 'services/finance_calc.dart';
 import 'services/finance_storage.dart';
 import 'services/image_attachment_service.dart';
@@ -582,7 +579,6 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         pocketMoney: _pocketMoney,
       );
   double get _totalExpense => _totals.totalExpense;
-  double get _pocketMoneyExpense => _totals.pocketMoneyExpense;
   double get _remainingPocketMoney => _totals.remainingPocketMoney;
   double get _payable => _totals.payable;
   double get _receivable => _totals.receivable;
@@ -1206,11 +1202,14 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         );
       }
       if (payload == null || !mounted) return;
+      // final lokal agar promosi non-null tetap berlaku di dalam closure
+      // dialog (payload yang mutable kehilangan promosi di closure Dart).
+      final restored = payload;
       final mode = await showDialog<RestoreMode>(
         context: context,
         builder: (dialogContext) => AlertDialog(
           title: const Text('Pulihkan backup'),
-          content: Text('${payload.sourceName}\n\nPilih cara pemulihan data.'),
+          content: Text('${restored.sourceName}\n\nPilih cara pemulihan data.'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(dialogContext, RestoreMode.merge),
@@ -1229,52 +1228,52 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         if (mode == RestoreMode.replace) {
           final accountIdMap = <String, String>{};
           _accounts = _deduplicateAccounts(
-            payload.accounts,
+            restored.accounts,
             idMap: accountIdMap,
           );
-          _expenses = _remapExpenseAccounts(payload.expenses, accountIdMap);
-          _debts = [...payload.debts];
-          _pocketMoney = payload.pocketMoney;
-          _reminders = [...payload.reminders];
-          _budgets = [...payload.budgets];
-          _recurring = _remapRecurringAccounts(payload.recurring, accountIdMap);
-          _savings = [...payload.savingsGoals];
-          _privacyEnabled = payload.privacyMode;
+          _expenses = _remapExpenseAccounts(restored.expenses, accountIdMap);
+          _debts = [...restored.debts];
+          _pocketMoney = restored.pocketMoney;
+          _reminders = [...restored.reminders];
+          _budgets = [...restored.budgets];
+          _recurring = _remapRecurringAccounts(restored.recurring, accountIdMap);
+          _savings = [...restored.savingsGoals];
+          _privacyEnabled = restored.privacyMode;
           PrivacyMask.enabled = _privacyEnabled;
         } else {
           final accountIdMap = <String, String>{};
           _accounts = _deduplicateAccounts([
             ..._accounts,
-            ...payload.accounts,
+            ...restored.accounts,
           ], idMap: accountIdMap);
           final expenses = {for (final item in _expenses) item.id: item};
           final debts = {for (final item in _debts) item.id: item};
-          for (final item in payload.expenses) {
+          for (final item in restored.expenses) {
             expenses[item.id] = item;
           }
-          for (final item in payload.debts) {
+          for (final item in restored.debts) {
             debts[item.id] = item;
           }
           _expenses = _remapExpenseAccounts(expenses.values, accountIdMap);
           _debts = debts.values.toList();
-          if (payload.pocketMoney > 0) _pocketMoney = payload.pocketMoney;
-          if (payload.reminders.isNotEmpty)
-            _reminders = [..._reminders, ...payload.reminders];
-          if (payload.budgets.isNotEmpty)
-            _budgets = [..._budgets, ...payload.budgets];
-          if (payload.recurring.isNotEmpty)
+          if (restored.pocketMoney > 0) _pocketMoney = restored.pocketMoney;
+          if (restored.reminders.isNotEmpty)
+            _reminders = [..._reminders, ...restored.reminders];
+          if (restored.budgets.isNotEmpty)
+            _budgets = [..._budgets, ...restored.budgets];
+          if (restored.recurring.isNotEmpty)
             _recurring = _remapRecurringAccounts([
               ..._recurring,
-              ...payload.recurring,
+              ...restored.recurring,
             ], accountIdMap);
-          if (payload.savingsGoals.isNotEmpty) {
+          if (restored.savingsGoals.isNotEmpty) {
             final savings = {for (final item in _savings) item.id: item};
-            for (final item in payload.savingsGoals) {
+            for (final item in restored.savingsGoals) {
               savings[item.id] = item;
             }
             _savings = savings.values.toList();
           }
-          if (payload.privacyMode) {
+          if (restored.privacyMode) {
             _privacyEnabled = true;
             PrivacyMask.enabled = true;
           }
@@ -1300,7 +1299,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '${payload.expenses.length + payload.debts.length} catatan dan ${payload.reminders.length} pengingat berhasil dipulihkan.',
+              '${restored.expenses.length + restored.debts.length} catatan dan ${restored.reminders.length} pengingat berhasil dipulihkan.',
             ),
           ),
         );
@@ -1410,6 +1409,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         cacheInfo: _cacheInfoLabel,
         selectedTheme: widget.themeMode,
         onThemeSelected: widget.onThemeModeChanged,
+        onBackupToDrive: _backupToGoogleDrive,
         onLanguageChanged: (value) {
           setState(() => _languageCode = value);
           _storage.saveLanguage(value);
