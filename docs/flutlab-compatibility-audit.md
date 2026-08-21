@@ -66,3 +66,26 @@ The Android build output directories are intentionally not committed.
 [2]: https://github.com/flutter/flutter/tree/3.32.1/packages/flutter_tools/gradle
 [3]: https://docs.gradle.org/current/userguide/compatibility.html
 [4]: https://developer.android.com/build/releases/gradle-plugin
+
+## Comprehensive audit follow-up: pasted_content.txt
+
+The supplied codebase audit was reviewed against the current repository instead of applying every recommendation blindly. The following table records the disposition of each finding.
+
+| Audit finding | Repository evidence | Action |
+|---|---|---|
+| Numeric/string/date/enum deserialization can crash | Several models previously used strict string casts and case-sensitive enum matching | Fixed with `lib/models/json_helpers.dart`; all finance, reminder, task, and updater models now use tolerant numeric, boolean, date, string, enum, and list parsing with safe fallbacks |
+| JSON file writes can race or create zero-byte files | `FinanceStorage` uses SharedPreferences, not direct JSON files; backup creation stages files in a temporary directory | Added a serialized write queue to `FinanceStorage`; no unnecessary JSON atomic-write abstraction was introduced |
+| Hash false positives from XML formatting | Backup manifests are canonicalized by stripping formatting whitespace before HMAC verification | Existing canonicalization was retained; malformed device HMAC keys now regenerate safely. The manifest still intentionally uses a device-keystore HMAC scope, so a backup made on another device or after keystore loss is expected to require a deliberate trust/recovery policy rather than silently bypassing integrity checks |
+| Missing receipt/goal image can crash UI or consume excessive memory | Local `Image.file` consumers lacked cache bounds in `main.dart` and `savings_sheet.dart` | Added file fallback/errorBuilder handling and cache dimensions for goal thumbnails, receipt previews, and savings photos. Input images were already downscaled by `ImageAttachmentService` |
+| Budget progress can divide by zero or exceed indicator bounds | Budget service guarded zero limits and analytics UI already applied a clamp | Added finite/rounded budget aggregation and bounded `SavingsGoal.progress`; existing analytics clamp remains in place |
+| Floating-point drift in financial totals | Several aggregate totals used raw `double` folds | Added `roundMoney` at model deserialization, budget aggregation, widget totals, pocket-money calculations, debt totals, and widget sync values |
+| Async context/state use after an await | Most sheets already checked `mounted`; savings photo deletion and account transition flow lacked a post-await guard | Added mounted guards in `savings_sheet.dart` and `advanced_finance_sheets.dart`; existing guarded flows were left unchanged |
+| Lexical SemVer comparison in updater | Updater compares numeric `versionCode`; no string `.compareTo` version decision exists | No SemVer patch was necessary. Metadata parsing was hardened, and downloaded APK filenames now sanitize the version string |
+| Android widget does not refresh after Flutter changes | `main.dart` already calls `HomeWidget.updateWidget`, and the native provider refreshes widget IDs | No duplicate MethodChannel was added; widget sync was retained and total values now use rounded aggregates |
+| Missing global error catcher | `main()` previously only initialized bindings and called `runApp` | Added `FlutterError.onError` and `PlatformDispatcher.instance.onError` handlers |
+
+Regression coverage was added in `test/model_parsing_test.dart` for legacy numeric/string values, invalid dates, unknown enums, bounded progress, rounding, reminder weekdays, and task parsing. The audit's generic recommendations were therefore converted into targeted fixes only where the repository contained a real defect.
+
+## Audit validation status
+
+`flutter test` passes all 8 tests under Flutter 3.32.1/Dart 3.8.1. `flutter analyze` reports no compile errors; it still exits non-zero because the repository contains pre-existing warnings/info such as unused legacy methods, curly-brace style notices, report API deprecations, and vendor Windows API notices. The new audit code itself is formatted and covered by tests.

@@ -245,7 +245,20 @@ class SavingsOverviewCard extends StatelessWidget {
                   width: 58,
                   height: 58,
                   child: file != null && file.existsSync()
-                      ? Image.file(file, fit: BoxFit.cover)
+                      ? Image.file(
+                          file,
+                          fit: BoxFit.cover,
+                          cacheWidth: 180,
+                          cacheHeight: 180,
+                          errorBuilder: (context, error, stackTrace) =>
+                              ColoredBox(
+                                color: colors.primary.withValues(alpha: 0.1),
+                                child: Icon(
+                                  Icons.broken_image_outlined,
+                                  color: colors.primary,
+                                ),
+                              ),
+                        )
                       : ColoredBox(
                           color: colors.primary.withValues(alpha: 0.1),
                           child: Icon(Icons.savings_outlined, color: colors.primary),

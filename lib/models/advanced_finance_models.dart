@@ -1,4 +1,5 @@
 import 'finance_models.dart';
+import 'json_helpers.dart';
 
 enum MoneyAccountType { cash, bank, ewallet, card }
 
@@ -28,9 +29,8 @@ class SavingsGoal {
   final int reminderMinute;
   final DateTime createdAt;
 
-  double get progress => targetAmount <= 0
-      ? 0
-      : (savedAmount / targetAmount).clamp(0, 1).toDouble();
+  double get progress =>
+      targetAmount <= 0 ? 0 : clampProgress(savedAmount / targetAmount);
 
   bool get isComplete => targetAmount > 0 && savedAmount >= targetAmount;
 
@@ -68,15 +68,18 @@ class SavingsGoal {
   };
 
   factory SavingsGoal.fromJson(Map<String, dynamic> json) => SavingsGoal(
-    id: json['id'] as String? ?? DateTime.now().microsecondsSinceEpoch.toString(),
-    name: json['name'] as String? ?? 'Tabungan',
-    targetAmount: (json['targetAmount'] as num?)?.toDouble() ?? 0,
-    savedAmount: (json['savedAmount'] as num?)?.toDouble() ?? 0,
-    photoPath: json['photoPath'] as String?,
-    reminderEnabled: json['reminderEnabled'] as bool? ?? false,
-    reminderHour: ((json['reminderHour'] as num?)?.toInt() ?? 20).clamp(0, 23),
-    reminderMinute: ((json['reminderMinute'] as num?)?.toInt() ?? 0).clamp(0, 59),
-    createdAt: DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
+    id: readString(
+      json['id'],
+      fallback: DateTime.now().microsecondsSinceEpoch.toString(),
+    ),
+    name: readString(json['name'], fallback: 'Tabungan'),
+    targetAmount: roundMoney(readDouble(json['targetAmount'])),
+    savedAmount: roundMoney(readDouble(json['savedAmount'])),
+    photoPath: readNullableString(json['photoPath']),
+    reminderEnabled: readBool(json['reminderEnabled']),
+    reminderHour: clampInt(readInt(json['reminderHour'], fallback: 20), 0, 23),
+    reminderMinute: clampInt(readInt(json['reminderMinute']), 0, 59),
+    createdAt: readDate(json['createdAt']),
   );
 }
 
@@ -126,19 +129,20 @@ class MoneyAccount {
   };
 
   factory MoneyAccount.fromJson(Map<String, dynamic> json) => MoneyAccount(
-    id:
-        json['id'] as String? ??
-        DateTime.now().microsecondsSinceEpoch.toString(),
-    name: json['name'] as String? ?? 'Dompet',
-    type: MoneyAccountType.values.firstWhere(
-      (item) => item.name == json['type'],
-      orElse: () => MoneyAccountType.cash,
+    id: readString(
+      json['id'],
+      fallback: DateTime.now().microsecondsSinceEpoch.toString(),
     ),
-    balance: (json['balance'] as num?)?.toDouble() ?? 0,
-    brandKey: json['brandKey'] as String? ?? 'wallet',
-    isArchived: json['isArchived'] as bool? ?? false,
-    createdAt:
-        DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
+    name: readString(json['name'], fallback: 'Dompet'),
+    type: readEnum(
+      MoneyAccountType.values,
+      json['type'],
+      MoneyAccountType.cash,
+    ),
+    balance: roundMoney(readDouble(json['balance'])),
+    brandKey: readString(json['brandKey'], fallback: 'wallet'),
+    isArchived: readBool(json['isArchived']),
+    createdAt: readDate(json['createdAt']),
   );
 }
 
@@ -182,18 +186,19 @@ class BudgetLimit {
   };
 
   factory BudgetLimit.fromJson(Map<String, dynamic> json) => BudgetLimit(
-    id:
-        json['id'] as String? ??
-        DateTime.now().microsecondsSinceEpoch.toString(),
-    category: ExpenseCategory.values.firstWhere(
-      (item) => item.name == json['category'],
-      orElse: () => ExpenseCategory.other,
+    id: readString(
+      json['id'],
+      fallback: DateTime.now().microsecondsSinceEpoch.toString(),
     ),
-    monthlyLimit: (json['monthlyLimit'] as num?)?.toDouble() ?? 0,
-    alertPercent: (json['alertPercent'] as num?)?.toInt() ?? 80,
-    enabled: json['enabled'] as bool? ?? true,
-    createdAt:
-        DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
+    category: readEnum(
+      ExpenseCategory.values,
+      json['category'],
+      ExpenseCategory.other,
+    ),
+    monthlyLimit: roundMoney(readDouble(json['monthlyLimit'])),
+    alertPercent: clampInt(readInt(json['alertPercent'], fallback: 80), 0, 100),
+    enabled: readBool(json['enabled'], fallback: true),
+    createdAt: readDate(json['createdAt']),
   );
 }
 
@@ -258,27 +263,26 @@ class RecurringExpense {
     'createdAt': createdAt.toIso8601String(),
   };
 
-  factory RecurringExpense.fromJson(
-    Map<String, dynamic> json,
-  ) => RecurringExpense(
-    id:
-        json['id'] as String? ??
-        DateTime.now().microsecondsSinceEpoch.toString(),
-    title: json['title'] as String? ?? 'Transaksi berulang',
-    amount: (json['amount'] as num?)?.toDouble() ?? 0,
-    category: ExpenseCategory.values.firstWhere(
-      (item) => item.name == json['category'],
-      orElse: () => ExpenseCategory.other,
-    ),
-    accountId: json['accountId'] as String?,
-    dayOfMonth: (json['dayOfMonth'] as num?)?.clamp(1, 31).toInt() ?? 1,
-    note: json['note'] as String? ?? '',
-    enabled: json['enabled'] as bool? ?? true,
-    nextDue:
-        DateTime.tryParse(json['nextDue'] as String? ?? '') ?? DateTime.now(),
-    createdAt:
-        DateTime.tryParse(json['createdAt'] as String? ?? '') ?? DateTime.now(),
-  );
+  factory RecurringExpense.fromJson(Map<String, dynamic> json) =>
+      RecurringExpense(
+        id: readString(
+          json['id'],
+          fallback: DateTime.now().microsecondsSinceEpoch.toString(),
+        ),
+        title: readString(json['title'], fallback: 'Transaksi berulang'),
+        amount: roundMoney(readDouble(json['amount'])),
+        category: readEnum(
+          ExpenseCategory.values,
+          json['category'],
+          ExpenseCategory.other,
+        ),
+        accountId: readNullableString(json['accountId']),
+        dayOfMonth: clampInt(readInt(json['dayOfMonth'], fallback: 1), 1, 31),
+        note: readString(json['note']),
+        enabled: readBool(json['enabled'], fallback: true),
+        nextDue: readDate(json['nextDue']),
+        createdAt: readDate(json['createdAt']),
+      );
 }
 
 class ExpenseFilter {

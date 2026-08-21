@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui';
 
 
 import 'package:flutter/material.dart';
@@ -13,6 +14,7 @@ import 'core/palette.dart';
 import 'forms/debt_form_sheet.dart';
 import 'forms/expense_form_sheet.dart';
 import 'models/finance_models.dart';
+import 'models/json_helpers.dart';
 import 'widgets/calculator_sheet.dart';
 import 'widgets/communication_sheet.dart';
 import 'widgets/entry_actions.dart';
@@ -47,6 +49,19 @@ import 'package:home_widget/home_widget.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    FlutterError.presentError(
+      FlutterErrorDetails(
+        exception: error,
+        stack: stack,
+        library: 'unhandled async error',
+      ),
+    );
+    return true;
+  };
   runApp(const CatatanPengeluaranApp());
 }
 
@@ -468,15 +483,19 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
 
   Future<void> _syncHomeWidget() async {
     final now = DateTime.now();
-    final monthExpense = _expenses
-        .where(
-          (entry) =>
-              entry.date.year == now.year && entry.date.month == now.month,
-        )
-        .fold(0.0, (sum, entry) => sum + entry.amount);
-    final totalBalance = _accounts
-        .where((item) => !item.isArchived)
-        .fold(0.0, (sum, item) => sum + item.balance);
+    final monthExpense = roundMoney(
+      _expenses
+          .where(
+            (entry) =>
+                entry.date.year == now.year && entry.date.month == now.month,
+          )
+          .fold(0.0, (sum, entry) => sum + entry.amount),
+    );
+    final totalBalance = roundMoney(
+      _accounts
+          .where((item) => !item.isArchived)
+          .fold(0.0, (sum, item) => sum + item.balance),
+    );
     try {
       await HomeWidget.saveWidgetData<String>(
         'month_expense',
@@ -2196,12 +2215,14 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
 
   Widget _buildBalanceCard(ColorScheme colors) {
     final today = DateTime.now();
-    final thisMonth = _expenses
-        .where(
-          (entry) =>
-              entry.date.year == today.year && entry.date.month == today.month,
-        )
-        .fold(0.0, (sum, entry) => sum + entry.amount);
+    final thisMonth = roundMoney(
+      _expenses
+          .where(
+            (entry) =>
+                entry.date.year == today.year && entry.date.month == today.month,
+          )
+          .fold(0.0, (sum, entry) => sum + entry.amount),
+    );
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0.92, end: 1),
       duration: const Duration(milliseconds: 500),

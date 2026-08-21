@@ -1,4 +1,5 @@
 import '../models/advanced_finance_models.dart';
+import '../models/json_helpers.dart';
 import '../models/finance_models.dart';
 import '../models/reminder_models.dart';
 
@@ -12,20 +13,28 @@ class FinanceCalc {
     required List<DebtEntry> debts,
     required double pocketMoney,
   }) {
-    final totalExpense = expenses.fold<double>(0, (sum, item) => sum + item.amount);
-    final pocketMoneyExpense = expenses
-        .where((item) => item.accountId == null)
-        .fold<double>(0, (sum, item) => sum + item.amount);
-    final payable = debts
-        .where((item) => item.kind == DebtKind.payable && !item.isSettled)
-        .fold<double>(0, (sum, item) => sum + item.amount);
-    final receivable = debts
-        .where((item) => item.kind == DebtKind.receivable && !item.isSettled)
-        .fold<double>(0, (sum, item) => sum + item.amount);
+    final totalExpense = roundMoney(
+      expenses.fold<double>(0, (sum, item) => sum + item.amount),
+    );
+    final pocketMoneyExpense = roundMoney(
+      expenses
+          .where((item) => item.accountId == null)
+          .fold<double>(0, (sum, item) => sum + item.amount),
+    );
+    final payable = roundMoney(
+      debts
+          .where((item) => item.kind == DebtKind.payable && !item.isSettled)
+          .fold<double>(0, (sum, item) => sum + item.amount),
+    );
+    final receivable = roundMoney(
+      debts
+          .where((item) => item.kind == DebtKind.receivable && !item.isSettled)
+          .fold<double>(0, (sum, item) => sum + item.amount),
+    );
     return FinanceTotals(
       totalExpense: totalExpense,
       pocketMoneyExpense: pocketMoneyExpense,
-      remainingPocketMoney: pocketMoney - pocketMoneyExpense,
+      remainingPocketMoney: roundMoney(pocketMoney - pocketMoneyExpense),
       payable: payable,
       receivable: receivable,
     );

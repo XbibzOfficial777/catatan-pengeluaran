@@ -165,6 +165,7 @@ class _AccountSettingsSheetState extends State<AccountSettingsSheet> {
         barrierDismissible: false,
         builder: (_) => AccountTransitionSplash(account: account),
       );
+      if (!mounted) return;
     }
     final existingNames = _items
         .where((item) => item.id != account?.id)
@@ -460,8 +461,9 @@ class _AccountDetailSheetState extends State<AccountDetailSheet>
             const SizedBox(height: 22),
             Text(
               'Riwayat pengeluaran',
-              style: Theme.of(context).textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w800),
+              style: Theme.of(
+                context,
+              ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
             ),
             const SizedBox(height: 8),
             if (entries.isEmpty)
@@ -1157,8 +1159,9 @@ class _EmptySetting extends StatelessWidget {
     width: double.infinity,
     padding: const EdgeInsets.all(18),
     decoration: BoxDecoration(
-      color: Theme.of(context).colorScheme.surfaceContainerHighest
-          .withValues(alpha: 0.45),
+      color: Theme.of(
+        context,
+      ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.45),
       borderRadius: BorderRadius.circular(12),
     ),
     child: Text(text),

@@ -81,6 +81,15 @@ class StorageCorruptionTracker {
 
 class FinanceStorage {
   final StorageCorruptionTracker _corruption = StorageCorruptionTracker();
+  Future<void> _writeQueue = Future<void>.value();
+
+  /// Tulisan diserialisasi (queue) agar dua save bersamaan tidak saling
+  /// menimpa — pengerasan dari branch main.
+  Future<void> _enqueueWrite(Future<void> Function() action) {
+    final next = _writeQueue.then((_) => action());
+    _writeQueue = next.catchError((_) {});
+    return next;
+  }
 
   /// Laporan korupsi data sejak pembacaan terakhir.
   StorageCorruptionReport consumeCorruptionReport() =>
@@ -102,10 +111,10 @@ class FinanceStorage {
     return preferences.getString(_languageKey) ?? 'id';
   }
 
-  Future<void> saveLanguage(String languageCode) async {
+  Future<void> saveLanguage(String languageCode) => _enqueueWrite(() async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(_languageKey, languageCode);
-  }
+  });
 
   Future<List<ExpenseEntry>> loadExpenses() async {
     final preferences = await SharedPreferences.getInstance();
@@ -121,31 +130,31 @@ class FinanceStorage {
     return _decodeList(preferences, _debtKey, DebtEntry.fromJson);
   }
 
-  Future<void> saveExpenses(List<ExpenseEntry> entries) async {
+  Future<void> saveExpenses(List<ExpenseEntry> entries) => _enqueueWrite(() async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(
       _expenseKey,
       jsonEncode(entries.map((entry) => entry.toJson()).toList()),
     );
-  }
+  });
 
-  Future<void> saveDebts(List<DebtEntry> entries) async {
+  Future<void> saveDebts(List<DebtEntry> entries) => _enqueueWrite(() async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(
       _debtKey,
       jsonEncode(entries.map((entry) => entry.toJson()).toList()),
     );
-  }
+  });
 
   Future<double> loadPocketMoney() async {
     final preferences = await SharedPreferences.getInstance();
     return preferences.getDouble(_pocketMoneyKey) ?? 0;
   }
 
-  Future<void> savePocketMoney(double amount) async {
+  Future<void> savePocketMoney(double amount) => _enqueueWrite(() async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setDouble(_pocketMoneyKey, amount);
-  }
+  });
 
   Future<String?> loadThemeMode() async {
     final preferences = await SharedPreferences.getInstance();
@@ -161,13 +170,13 @@ class FinanceStorage {
     );
   }
 
-  Future<void> saveAccounts(List<MoneyAccount> entries) async {
+  Future<void> saveAccounts(List<MoneyAccount> entries) => _enqueueWrite(() async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(
       _accountsKey,
       jsonEncode(entries.map((entry) => entry.toJson()).toList()),
     );
-  }
+  });
 
   Future<List<BudgetLimit>> loadBudgets() async {
     final preferences = await SharedPreferences.getInstance();
@@ -178,13 +187,13 @@ class FinanceStorage {
     );
   }
 
-  Future<void> saveBudgets(List<BudgetLimit> entries) async {
+  Future<void> saveBudgets(List<BudgetLimit> entries) => _enqueueWrite(() async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(
       _budgetsKey,
       jsonEncode(entries.map((entry) => entry.toJson()).toList()),
     );
-  }
+  });
 
   Future<List<RecurringExpense>> loadRecurringExpenses() async {
     final preferences = await SharedPreferences.getInstance();
@@ -195,13 +204,13 @@ class FinanceStorage {
     );
   }
 
-  Future<void> saveRecurringExpenses(List<RecurringExpense> entries) async {
+  Future<void> saveRecurringExpenses(List<RecurringExpense> entries) => _enqueueWrite(() async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(
       _recurringKey,
       jsonEncode(entries.map((entry) => entry.toJson()).toList()),
     );
-  }
+  });
 
   Future<List<SavingsGoal>> loadSavingsGoals() async {
     final preferences = await SharedPreferences.getInstance();
@@ -212,28 +221,28 @@ class FinanceStorage {
     );
   }
 
-  Future<void> saveSavingsGoals(List<SavingsGoal> entries) async {
+  Future<void> saveSavingsGoals(List<SavingsGoal> entries) => _enqueueWrite(() async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(
       _savingsKey,
       jsonEncode(entries.map((entry) => entry.toJson()).toList()),
     );
-  }
+  });
 
   Future<bool> loadPrivacyMode() async {
     final preferences = await SharedPreferences.getInstance();
     return preferences.getBool(_privacyKey) ?? false;
   }
 
-  Future<void> savePrivacyMode(bool enabled) async {
+  Future<void> savePrivacyMode(bool enabled) => _enqueueWrite(() async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setBool(_privacyKey, enabled);
-  }
+  });
 
-  Future<void> saveThemeMode(String mode) async {
+  Future<void> saveThemeMode(String mode) => _enqueueWrite(() async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(_themeKey, mode);
-  }
+  });
 
   /// Membaca list JSON dari [key].
   ///

@@ -41,7 +41,7 @@ File yang dihasilkan bernama seperti `CatatanPengeluaran_20260819_120000.bibzcup
 
 **Backup ke Google Drive** membuat arsip yang sama, lalu membukanya melalui Android share sheet. Pengguna memilih Google Drive pada share sheet untuk menyimpan arsip. Login Google dilakukan oleh Google Drive/browser/system; aplikasi tidak memiliki form login, tidak meminta password, dan tidak menyimpan kredensial Google.
 
-**Restore backup** membuka file picker sistem untuk memilih `.bibzcup` atau `.zip`. Aplikasi memvalidasi `manifest.json`, memulihkan data transaksi, memulihkan foto ke penyimpanan aplikasi, lalu menawarkan dua mode: **Gabungkan** dengan data saat ini atau **Ganti semua**. ID transaksi dipakai untuk mencegah duplikasi saat mode gabungkan digunakan.
+**Restore backup** membuka file picker sistem untuk memilih `.bibzcup` atau `.zip`. Aplikasi memvalidasi manifest, memulihkan data transaksi, memulihkan foto ke penyimpanan aplikasi, lalu menawarkan dua mode: **Gabungkan** dengan data saat ini atau **Ganti semua**. ID transaksi dipakai untuk mencegah duplikasi saat mode gabungkan digunakan. Backup yang dibuat di perangkat lain tetap bisa dipulihkan: aplikasi meminta konfirmasi tambahan lalu memverifikasi checksum SHA256 seluruh file dalam arsip terhadap manifest.
 
 ## Export spreadsheet Excel profesional
 
@@ -63,20 +63,29 @@ Workbook memakai tema corporate blue yang tenang, hierarki tipografi, header kon
 
 ```text
 lib/
-  main.dart                              # UI, navigation, dashboard, search, forms, animations
+  main.dart                              # Entry, tema, dan state halaman utama
+  core/                                  # Palet warna, format currency, kategori, helper murni
+  forms/                                 # Form pengeluaran dan hutang/piutang
   models/finance_models.dart             # Model ExpenseEntry dan DebtEntry
-  services/finance_storage.dart          # Persistence SharedPreferences
+  services/finance_storage.dart          # Persistence SharedPreferences + karantina data rusak
+  services/finance_calc.dart             # Perhitungan murni (totals, merge akun, reminder id)
   services/image_attachment_service.dart # Pick, edit result, copy, replace, delete foto
   services/contact_service.dart          # Permission dan picker kontak Android
   services/communication_service.dart    # WhatsApp/SMS URL launcher
-  services/backup_service.dart           # JSON + foto ke ZIP level 9 .bibzcup
-  services/data_transfer_service.dart    # Restore ZIP dan export spreadsheet XLSX profesional
+  services/backup_service.dart           # Manifest XML + foto ke ZIP level 9 .bibzcup
+  services/backup_integrity_service.dart # HMAC-SHA256 + checksum SHA256 per file
+  services/data_transfer_service.dart    # Restore ZIP (termasuk lintas perangkat) dan export XLSX
+  services/app_update_service.dart       # Cek update + download APK terverifikasi
+  widgets/                               # Tile, sheet, kalkulator, komunikasi, scaffolding form
 assets/
   catatan_pengeluaran_icon.png           # Icon sumber aplikasi
+dashboard-feed.txt                       # Sumber URL gambar dashboard (dikendalikan repo ini)
 vendor/font_awesome_flutter/              # Shim IconData Flutter terbaru untuk editor
 android/app/proguard-rules.pro            # Aturan R8 release
 android/app/build.gradle.kts              # Package, SDK, minify, dan resource shrinking
 ```
+
+Pembaruan aplikasi (self-updater) memverifikasi tiga lapis sebelum instalasi: URL APK wajib https dari domain GitHub resmi, checksum SHA256 bila metadata menyediakan, dan sertifikat tanda tangan APK wajib sama dengan aplikasi terpasang.
 
 ## Kompatibilitas
 

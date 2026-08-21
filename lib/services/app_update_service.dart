@@ -7,6 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../models/json_helpers.dart';
+
 class AppUpdateInfo {
   const AppUpdateInfo({
     required this.version,
@@ -31,18 +33,17 @@ class AppUpdateInfo {
 
   factory AppUpdateInfo.fromJson(Map<String, dynamic> json) {
     String readUrl(String primary, String fallback) =>
-        (json[primary] ?? json[fallback]) as String? ?? '';
+        readString(json[primary] ?? json[fallback]);
     return AppUpdateInfo(
-      version: json['version'] as String? ?? '0.0.0',
-      versionCode: (json['versionCode'] as num?)?.toInt() ?? 0,
+      version: readString(json['version'], fallback: '0.0.0'),
+      versionCode: readInt(json['versionCode']),
       universalApkUrl: readUrl('universalApkUrl', 'universalUrl'),
       arm64ApkUrl: readUrl('arm64ApkUrl', 'downloadUrl'),
-      releaseNotes: json['releaseNotes'] as String? ?? '',
-      sha256Universal:
-          (json['sha256Universal'] ?? json['universalSha256']) as String? ??
-          '',
-      sha256Arm64:
-          (json['sha256Arm64'] ?? json['arm64Sha256']) as String? ?? '',
+      releaseNotes: readString(json['releaseNotes']),
+      sha256Universal: readString(
+        json['sha256Universal'] ?? json['universalSha256'],
+      ),
+      sha256Arm64: readString(json['sha256Arm64'] ?? json['arm64Sha256']),
     );
   }
 }
@@ -122,7 +123,14 @@ class AppUpdateService {
       throw const FormatException('URL APK belum tersedia di version-latest.json.');
     }
     final directory = await getTemporaryDirectory();
-    final file = File('${directory.path}/catatan_pengeluaran_update_${info.version}.apk');
+    // Sanitasi nama versi dari metadata agar tidak bisa menyuntik path.
+    final safeVersion = info.version.replaceAll(
+      RegExp(r'[^0-9A-Za-z._-]'),
+      '_',
+    );
+    final file = File(
+      '${directory.path}/catatan_pengeluaran_update_$safeVersion.apk',
+    );
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
     try {
       HttpException? lastHttpError;

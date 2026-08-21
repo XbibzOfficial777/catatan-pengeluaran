@@ -41,7 +41,9 @@ class _SavingsSettingsSheetState extends State<SavingsSettingsSheet> {
     if (result == null || !mounted) return;
     if (goal?.photoPath != null && goal!.photoPath != result.photoPath) {
       await widget.imageService.delete(goal.photoPath);
+      if (!mounted) return;
     }
+    if (!mounted) return;
     setState(() {
       final index = _goals.indexWhere((item) => item.id == result.id);
       if (index == -1) {
@@ -75,6 +77,7 @@ class _SavingsSettingsSheetState extends State<SavingsSettingsSheet> {
     );
     if (confirmed != true || !mounted) return;
     await widget.imageService.delete(goal.photoPath);
+    if (!mounted) return;
     setState(() => _goals.removeWhere((item) => item.id == goal.id));
   }
 
@@ -96,7 +99,10 @@ class _SavingsSettingsSheetState extends State<SavingsSettingsSheet> {
                   const Expanded(
                     child: Text(
                       'Tabungan',
-                      style: TextStyle(fontSize: 21, fontWeight: FontWeight.w900),
+                      style: TextStyle(
+                        fontSize: 21,
+                        fontWeight: FontWeight.w900,
+                      ),
                     ),
                   ),
                   IconButton.filledTonal(
@@ -108,7 +114,9 @@ class _SavingsSettingsSheetState extends State<SavingsSettingsSheet> {
               ),
               Text(
                 'Buat tujuan, pasang foto impian, dan dapatkan pengingat menabung.',
-                style: TextStyle(color: colors.onSurface.withValues(alpha: 0.62)),
+                style: TextStyle(
+                  color: colors.onSurface.withValues(alpha: 0.62),
+                ),
               ),
               const SizedBox(height: 16),
               if (_goals.isEmpty)
@@ -117,7 +125,11 @@ class _SavingsSettingsSheetState extends State<SavingsSettingsSheet> {
                     padding: const EdgeInsets.all(20),
                     child: Row(
                       children: [
-                        Icon(Icons.savings_outlined, color: colors.primary, size: 30),
+                        Icon(
+                          Icons.savings_outlined,
+                          color: colors.primary,
+                          size: 30,
+                        ),
                         const SizedBox(width: 12),
                         const Expanded(
                           child: Text(
@@ -199,8 +211,14 @@ class _SavingsGoalCard extends StatelessWidget {
                           if (value == 'delete') onDelete();
                         },
                         itemBuilder: (_) => const [
-                          PopupMenuItem(value: 'edit', child: Text('Edit tabungan')),
-                          PopupMenuItem(value: 'delete', child: Text('Hapus tabungan')),
+                          PopupMenuItem(
+                            value: 'edit',
+                            child: Text('Edit tabungan'),
+                          ),
+                          PopupMenuItem(
+                            value: 'delete',
+                            child: Text('Hapus tabungan'),
+                          ),
                         ],
                       ),
                     ],
@@ -208,7 +226,9 @@ class _SavingsGoalCard extends StatelessWidget {
                   Text(
                     '${formatCurrency(goal.savedAmount)} dari ${formatCurrency(goal.targetAmount)}',
                     style: TextStyle(
-                      color: goal.isComplete ? Colors.green : colors.onSurface.withValues(alpha: 0.65),
+                      color: goal.isComplete
+                          ? Colors.green
+                          : colors.onSurface.withValues(alpha: 0.65),
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
                     ),
@@ -241,13 +261,18 @@ class _SavingsGoalCard extends StatelessWidget {
 }
 
 class SavingsGoalEditorDialog extends StatefulWidget {
-  const SavingsGoalEditorDialog({super.key, this.goal, required this.imageService});
+  const SavingsGoalEditorDialog({
+    super.key,
+    this.goal,
+    required this.imageService,
+  });
 
   final SavingsGoal? goal;
   final ImageAttachmentService imageService;
 
   @override
-  State<SavingsGoalEditorDialog> createState() => _SavingsGoalEditorDialogState();
+  State<SavingsGoalEditorDialog> createState() =>
+      _SavingsGoalEditorDialogState();
 }
 
 class _SavingsGoalEditorDialogState extends State<SavingsGoalEditorDialog> {
@@ -315,7 +340,10 @@ class _SavingsGoalEditorDialogState extends State<SavingsGoalEditorDialog> {
   }
 
   Future<void> _pickReminderTime() async {
-    final time = await showTimePicker(context: context, initialTime: _reminderTime);
+    final time = await showTimePicker(
+      context: context,
+      initialTime: _reminderTime,
+    );
     if (time != null && mounted) setState(() => _reminderTime = time);
   }
 
@@ -355,7 +383,10 @@ class _SavingsGoalEditorDialogState extends State<SavingsGoalEditorDialog> {
             if (_error != null)
               Align(
                 alignment: Alignment.centerLeft,
-                child: Text(_error!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                child: Text(
+                  _error!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
               ),
             TextField(
               controller: _name,
@@ -367,14 +398,24 @@ class _SavingsGoalEditorDialogState extends State<SavingsGoalEditorDialog> {
             const SizedBox(height: 12),
             TextField(
               controller: _target,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Target tabungan', prefixText: 'Rp '),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Target tabungan',
+                prefixText: 'Rp ',
+              ),
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _saved,
-              keyboardType: const TextInputType.numberWithOptions(decimal: true),
-              decoration: const InputDecoration(labelText: 'Sudah terkumpul', prefixText: 'Rp '),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Sudah terkumpul',
+                prefixText: 'Rp ',
+              ),
             ),
             const SizedBox(height: 12),
             Row(
@@ -385,7 +426,11 @@ class _SavingsGoalEditorDialogState extends State<SavingsGoalEditorDialog> {
                   child: OutlinedButton.icon(
                     onPressed: _pickPhoto,
                     icon: const Icon(Icons.add_a_photo_outlined),
-                    label: Text(_photoPath == null ? 'Tambah foto tujuan' : 'Ganti foto tujuan'),
+                    label: Text(
+                      _photoPath == null
+                          ? 'Tambah foto tujuan'
+                          : 'Ganti foto tujuan',
+                    ),
                   ),
                 ),
               ],
@@ -396,7 +441,9 @@ class _SavingsGoalEditorDialogState extends State<SavingsGoalEditorDialog> {
               value: _reminderEnabled,
               onChanged: (value) => setState(() => _reminderEnabled = value),
               title: const Text('Pengingat waktu menabung'),
-              subtitle: Text('Setiap hari pukul ${_reminderTime.format(context)}'),
+              subtitle: Text(
+                'Setiap hari pukul ${_reminderTime.format(context)}',
+              ),
             ),
             if (_reminderEnabled)
               Align(
@@ -411,7 +458,10 @@ class _SavingsGoalEditorDialogState extends State<SavingsGoalEditorDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Batal')),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Batal'),
+        ),
         FilledButton(onPressed: _save, child: const Text('Simpan')),
       ],
     );
@@ -434,8 +484,20 @@ class _GoalPhoto extends StatelessWidget {
         height: size,
         color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.1),
         child: file != null && file.existsSync()
-            ? Image.file(file, fit: BoxFit.cover)
-            : Icon(Icons.savings_outlined, color: Theme.of(context).colorScheme.primary),
+            ? Image.file(
+                file,
+                fit: BoxFit.cover,
+                cacheWidth: (size * 3).round(),
+                cacheHeight: (size * 3).round(),
+                errorBuilder: (context, error, stackTrace) => Icon(
+                  Icons.broken_image_outlined,
+                  color: Theme.of(context).colorScheme.primary,
+                ),
+              )
+            : Icon(
+                Icons.savings_outlined,
+                color: Theme.of(context).colorScheme.primary,
+              ),
       ),
     );
   }

@@ -99,6 +99,8 @@ class PhotoAttachment extends StatelessWidget {
                   child: Image.file(
                     File(path!),
                     fit: BoxFit.cover,
+                    cacheWidth: 1200,
+                    cacheHeight: 500,
                     errorBuilder: (context, error, stackTrace) => Container(
                       color: colors.surfaceContainerHighest,
                       child: const Icon(Icons.broken_image_outlined),
