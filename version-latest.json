@@ -1,7 +1,7 @@
 {
-  "version": "1.3.2",
-  "versionCode": 11,
-  "releaseNotes": "Perbaikan updater aplikasi, restore .bibzcup, cache-busting metadata, dan fallback download GitHub Release.",
+  "version": "1.3.3",
+  "versionCode": 12,
+  "releaseNotes": "Audit keamanan dan keandalan data, restore lintas perangkat, updater terverifikasi, hardening gambar, serta perbaikan build FlutLab dan Android Release.",
   "universalApkUrl": "https://github.com/XbibzOfficial777/catatan-pengeluaran/releases/latest/download/Catatan-Pengeluaran-universal.apk",
   "arm64ApkUrl": "https://github.com/XbibzOfficial777/catatan-pengeluaran/releases/latest/download/Catatan-Pengeluaran-arm64-v8a.apk"
 }
