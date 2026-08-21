@@ -29,7 +29,7 @@ Validation results on 2026-08-21:
 | Validation | Result |
 |---|---|
 | Flutter 3.32.1 / Dart 3.8.1 `:gradle:compileKotlin` | Passed with Gradle 8.14.1 and Kotlin 2.1.21 |
-| Flutter 3.32.1 debug APK | Passed locally after removing an unrelated untracked `VersionFetcher.kt` file from the local SDK checkout |
+| Flutter 3.32.1 debug APK | Passed locally with the Flutter 3.32.1 default KGP 2.1.0 after removing an unrelated untracked `VersionFetcher.kt` file from the local SDK checkout; final KGP 2.1.21 `:gradle:compileKotlin` also passed |
 | Flutter 3.47.0 debug APK | Passed locally with `--android-skip-build-dependency-validation`; this flag is required only because the project is intentionally pinned to the FlutLab-compatible older toolchain |
 | API level | `compileSdk = 36`, `targetSdk = 36`, `minSdk = 24` |
 
