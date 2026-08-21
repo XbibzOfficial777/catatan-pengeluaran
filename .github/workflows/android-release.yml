@@ -93,10 +93,14 @@ jobs:
           # build.gradle.kts reads this property and disables R8/resource shrinking only in CI.
           echo 'ORG_GRADLE_PROJECT_fastRelease=true' >> "$GITHUB_ENV"
 
+      # The Android toolchain is intentionally pinned to AGP 8.11.1/KGP 2.1.21
+      # for Flutter 3.32/FlutLab compatibility. Flutter 3.47's validator asks
+      # for newer versions even though this Kotlin DSL build remains valid.
       - name: Build universal fast release APK
         run: >-
           flutter build apk --release
           --no-shrink --no-tree-shake-icons
+          --android-skip-build-dependency-validation
 
       - name: Preserve universal APK before split build
         run: |
@@ -109,6 +113,7 @@ jobs:
           flutter build apk --release --split-per-abi
           --target-platform android-arm64
           --no-shrink --no-tree-shake-icons
+          --android-skip-build-dependency-validation
 
       - name: Prepare release assets
         run: |
