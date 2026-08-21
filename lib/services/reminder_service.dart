@@ -9,7 +9,8 @@ import 'package:timezone/timezone.dart' as tz;
 import '../models/reminder_models.dart';
 import 'finance_storage.dart' show StorageCorruptionReport, StorageCorruptionTracker;
 
-class ReminderStorage with StorageCorruptionTracker {
+class ReminderStorage {
+  final StorageCorruptionTracker _corruption = StorageCorruptionTracker();
   static const _key = 'reminder_schedules_v1';
 
   Future<List<ReminderSchedule>> load() async {
@@ -35,22 +36,22 @@ class ReminderStorage with StorageCorruptionTracker {
         }
       }
       if (damagedEntries > 0) {
-        _partiallyCorruptKeys.add(_key);
-        await quarantineRaw(preferences, _key, raw);
+        _corruption.markPartial(_key);
+        await _corruption.quarantineRaw(preferences, _key, raw);
       }
       return results;
     } catch (_) {
       // Data rusak dikarantina, bukan dibuang diam-diam. Pemanggil dapat
       // memeriksa consumeCorruptionReport() sebelum menyimpan data baru.
-      _unreadableKeys.add(_key);
-      await quarantineRaw(preferences, _key, raw);
+      _corruption.markUnreadable(_key);
+      await _corruption.quarantineRaw(preferences, _key, raw);
       return <ReminderSchedule>[];
     }
   }
 
   /// Laporan korupsi storage pengingat sejak panggilan terakhir.
-  StorageCorruptionReport reminderCorruptionReport() =>
-      consumeCorruptionReport();
+  StorageCorruptionReport consumeCorruptionReport() =>
+      _corruption.consumeCorruptionReport();
 
   Future<void> save(List<ReminderSchedule> reminders) async {
     final preferences = await SharedPreferences.getInstance();

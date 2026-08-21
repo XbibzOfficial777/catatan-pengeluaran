@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../models/advanced_finance_models.dart';
+import '../core/format.dart';
 import '../services/image_attachment_service.dart';
 
 class SavingsSettingsSheet extends StatefulWidget {
@@ -205,7 +206,7 @@ class _SavingsGoalCard extends StatelessWidget {
                     ],
                   ),
                   Text(
-                    '${_formatCurrency(goal.savedAmount)} dari ${_formatCurrency(goal.targetAmount)}',
+                    '${formatCurrency(goal.savedAmount)} dari ${formatCurrency(goal.targetAmount)}',
                     style: TextStyle(
                       color: goal.isComplete ? Colors.green : colors.onSurface.withValues(alpha: 0.65),
                       fontSize: 12,
@@ -440,12 +441,3 @@ class _GoalPhoto extends StatelessWidget {
   }
 }
 
-String _formatCurrency(double value) {
-  final rounded = value.round().toString();
-  final buffer = StringBuffer();
-  for (var index = 0; index < rounded.length; index++) {
-    if (index > 0 && (rounded.length - index) % 3 == 0) buffer.write('.');
-    buffer.write(rounded[index]);
-  }
-  return 'Rp $buffer';
-}

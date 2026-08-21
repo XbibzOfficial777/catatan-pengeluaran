@@ -2,6 +2,9 @@ import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../models/finance_models.dart';
+import '../models/advanced_finance_models.dart';
+
 /// Laporan korupsi data lokal hasil pembacaan storage.
 ///
 /// [FinanceStorage] tidak pernah membuang data rusak secara diam-diam:
@@ -32,9 +35,17 @@ class StorageCorruptionReport {
 }
 
 /// Pelacak korupsi storage yang dipakai bersama oleh beberapa storage service.
-mixin StorageCorruptionTracker {
+///
+/// Diimplementasikan sebagai kelas (bukan mixin) karena field privat hanya
+/// terlihat di library yang sama; lewat komposisi, semua akses status lewat
+/// metode publik yang jelas.
+class StorageCorruptionTracker {
   final Set<String> _unreadableKeys = <String>{};
   final Set<String> _partiallyCorruptKeys = <String>{};
+
+  void markUnreadable(String key) => _unreadableKeys.add(key);
+
+  void markPartial(String key) => _partiallyCorruptKeys.add(key);
 
   /// Mengambil laporan korupsi sejak panggilan terakhir dan mereset penandanya.
   StorageCorruptionReport consumeCorruptionReport() {
@@ -68,7 +79,13 @@ mixin StorageCorruptionTracker {
   }
 }
 
-class FinanceStorage with StorageCorruptionTracker {
+class FinanceStorage {
+  final StorageCorruptionTracker _corruption = StorageCorruptionTracker();
+
+  /// Laporan korupsi data sejak pembacaan terakhir.
+  StorageCorruptionReport consumeCorruptionReport() =>
+      _corruption.consumeCorruptionReport();
+
   static const _expenseKey = 'expense_entries_v1';
   static const _debtKey = 'debt_entries_v1';
   static const _themeKey = 'theme_mode_v1';
@@ -251,13 +268,13 @@ class FinanceStorage with StorageCorruptionTracker {
         }
       }
       if (damagedEntries > 0) {
-        _partiallyCorruptKeys.add(key);
-        await quarantineRaw(preferences, key, raw);
+        _corruption.markPartial(key);
+        await _corruption.quarantineRaw(preferences, key, raw);
       }
       return results;
     } catch (_) {
-      _unreadableKeys.add(key);
-      await quarantineRaw(preferences, key, raw);
+      _corruption.markUnreadable(key);
+      await _corruption.quarantineRaw(preferences, key, raw);
       return <T>[];
     }
   }
