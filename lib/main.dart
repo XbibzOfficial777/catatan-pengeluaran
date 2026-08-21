@@ -377,8 +377,12 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   final Set<String> _selectedExpenseIds = <String>{};
   bool _isSelectingExpenses = false;
   bool _postLaunchNoticeStarted = false;
+  int _updateScheduleMinutes = 0;
+  Timer? _updateScheduleTimer;
+  String? _lastScheduledUpdateVersion;
 
   static const _quickActionChannel = MethodChannel('catatan/quick_actions');
+  static const _updateChannel = MethodChannel('catatan/app_update');
 
   @override
   void initState() {
@@ -388,6 +392,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         _showExpenseForm();
       }
     });
+    _updateChannel.setMethodCallHandler((call) async {
+      if (call.method == 'scheduled_update_check' && mounted) {
+        await _checkForUpdates(silent: true);
+      }
+    });
     _loadData();
     _loadImageFeed();
     _refreshCacheInfo();
@@ -395,6 +404,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
 
   @override
   void dispose() {
+    _updateScheduleTimer?.cancel();
     _debtSearchController.dispose();
     _expenseSearchController.dispose();
     super.dispose();
@@ -452,6 +462,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       _isLoading = false;
     });
     await _syncHomeWidget();
+    await _loadUpdateSchedule();
     if (hasUnreadableData && mounted) {
       await showDialog<void>(
         context: context,
@@ -482,6 +493,39 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       );
     }
     await _maybeShowOnboardingOrChangelog();
+  }
+
+  Future<void> _loadUpdateSchedule() async {
+    final minutes = await _storage.loadUpdateCheckIntervalMinutes();
+    await _applyUpdateSchedule(minutes, persist: false);
+  }
+
+  Future<void> _applyUpdateSchedule(
+    int minutes, {
+    required bool persist,
+  }) async {
+    final normalized = minutes.clamp(0, 10080).toInt();
+    if (mounted) {
+      setState(() => _updateScheduleMinutes = normalized);
+    } else {
+      _updateScheduleMinutes = normalized;
+    }
+    _updateScheduleTimer?.cancel();
+    _updateScheduleTimer = null;
+    if (persist) {
+      await _storage.saveUpdateCheckIntervalMinutes(normalized);
+    }
+    try {
+      await AppUpdateService.instance.configureBackgroundSchedule(normalized);
+    } catch (_) {
+      // Web/iOS dan perangkat tanpa channel native tetap memakai timer foreground.
+    }
+    if (normalized > 0) {
+      _updateScheduleTimer = Timer.periodic(
+        Duration(minutes: normalized),
+        (_) => _checkForUpdates(silent: true),
+      );
+    }
   }
 
   Future<void> _maybeShowOnboardingOrChangelog() async {
@@ -1605,6 +1649,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         cacheInfo: _cacheInfoLabel,
         selectedTheme: widget.themeMode,
         onThemeSelected: widget.onThemeModeChanged,
+        updateScheduleMinutes: _updateScheduleMinutes,
+        onUpdateScheduleChanged: (minutes) =>
+            _applyUpdateSchedule(minutes, persist: true),
         onBackupToDrive: _backupToGoogleDrive,
         onLanguageChanged: (value) {
           setState(() => _languageCode = value);
@@ -1665,7 +1712,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     }
   }
 
-  Future<void> _checkForUpdates() async {
+  Future<void> _checkForUpdates({bool silent = false}) async {
     try {
       final current = await PackageInfo.fromPlatform();
       final latest = await AppUpdateService.instance.checkLatest();
@@ -1677,6 +1724,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           (currentCode == 0 && latest.version != current.version);
       if (!mounted) return;
       if (!hasUpdate) {
+        if (silent) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -1687,6 +1735,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         return;
       }
       if (!AppUpdateService.instance.supportsApkInstall) {
+        if (silent) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
@@ -1698,9 +1747,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         );
         return;
       }
+      if (silent && _lastScheduledUpdateVersion == latest.version) return;
+      if (silent) _lastScheduledUpdateVersion = latest.version;
       await _showUpdateDialog(current.version, latest);
     } catch (error) {
-      if (mounted) {
+      if (mounted && !silent) {
         ScaffoldMessenger.of(
           context,
         ).showSnackBar(SnackBar(content: Text('Cek update gagal: $error')));
@@ -1773,16 +1824,38 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                           errorMessage = null;
                         });
                         try {
-                          final path = await AppUpdateService.instance.download(
-                            latest,
-                            preferArm64: true,
-                            onProgress: (received, total) {
-                              if (!dialogContext.mounted) return;
-                              setDialogState(() {
-                                progress = total > 0 ? received / total : 0;
-                              });
-                            },
-                          );
+                          final preferArm64 = await AppUpdateService.instance
+                              .prefersArm64Apk();
+                          String path;
+                          try {
+                            path = await AppUpdateService.instance.download(
+                              latest,
+                              preferArm64: preferArm64,
+                              onProgress: (received, total) {
+                                if (!dialogContext.mounted) return;
+                                setDialogState(() {
+                                  progress = total > 0 ? received / total : 0;
+                                });
+                              },
+                            );
+                          } catch (_) {
+                            if (!preferArm64 ||
+                                latest.universalApkUrl.isEmpty) {
+                              rethrow;
+                            }
+                            // Perangkat arm64 tetap memiliki fallback universal jika
+                            // asset arm64 rusak, hilang, atau gagal diunduh.
+                            path = await AppUpdateService.instance.download(
+                              latest,
+                              preferArm64: false,
+                              onProgress: (received, total) {
+                                if (!dialogContext.mounted) return;
+                                setDialogState(() {
+                                  progress = total > 0 ? received / total : 0;
+                                });
+                              },
+                            );
+                          }
                           if (dialogContext.mounted)
                             Navigator.pop(dialogContext);
                           await AppUpdateService.instance.installApk(path);

@@ -13,6 +13,8 @@ class AppSettingsSheet extends StatefulWidget {
     required this.onClearCache,
     required this.selectedTheme,
     required this.onThemeSelected,
+    required this.updateScheduleMinutes,
+    required this.onUpdateScheduleChanged,
   });
 
   final String languageCode;
@@ -25,6 +27,8 @@ class AppSettingsSheet extends StatefulWidget {
   final Future<void> Function() onClearCache;
   final ThemeMode selectedTheme;
   final ValueChanged<ThemeMode> onThemeSelected;
+  final int updateScheduleMinutes;
+  final Future<void> Function(int minutes) onUpdateScheduleChanged;
 
   @override
   State<AppSettingsSheet> createState() => _AppSettingsSheetState();
@@ -34,6 +38,8 @@ class _AppSettingsSheetState extends State<AppSettingsSheet> {
   late String _languageCode;
   bool _checkingUpdate = false;
   bool _clearingCache = false;
+  late int _updateScheduleMinutes;
+  late final TextEditingController _customScheduleController;
 
   bool get _english => _languageCode == 'en';
   String t(String id, String en) => _english ? en : id;
@@ -42,6 +48,63 @@ class _AppSettingsSheetState extends State<AppSettingsSheet> {
   void initState() {
     super.initState();
     _languageCode = widget.languageCode;
+    _updateScheduleMinutes = widget.updateScheduleMinutes;
+    _customScheduleController = TextEditingController(
+      text: _updateScheduleMinutes > 0 ? '$_updateScheduleMinutes' : '',
+    );
+  }
+
+  @override
+  void dispose() {
+    _customScheduleController.dispose();
+    super.dispose();
+  }
+
+  static const _schedulePresets = <int>[0, 1, 15, 60, 360, 1440];
+
+  String _scheduleLabel(int minutes) {
+    if (minutes == 0) return t('Tidak aktif', 'Disabled');
+    if (minutes == 1)
+      return t(
+        'Setiap menit saat aplikasi terbuka',
+        'Every minute while app is open',
+      );
+    if (minutes == 15) return t('Setiap 15 menit', 'Every 15 minutes');
+    if (minutes == 60) return t('Setiap jam', 'Every hour');
+    if (minutes == 360) return t('Setiap 6 jam', 'Every 6 hours');
+    if (minutes == 1440) return t('Setiap hari', 'Every day');
+    if (minutes % 1440 == 0)
+      return t(
+        'Setiap ${minutes ~/ 1440} hari',
+        'Every ${minutes ~/ 1440} days',
+      );
+    if (minutes % 60 == 0)
+      return t('Setiap ${minutes ~/ 60} jam', 'Every ${minutes ~/ 60} hours');
+    return t('Setiap $minutes menit', 'Every $minutes minutes');
+  }
+
+  Future<void> _selectSchedule(int minutes) async {
+    setState(() => _updateScheduleMinutes = minutes);
+    _customScheduleController.text = minutes > 0 ? '$minutes' : '';
+    await widget.onUpdateScheduleChanged(minutes);
+  }
+
+  Future<void> _saveCustomSchedule() async {
+    final minutes = int.tryParse(_customScheduleController.text.trim());
+    if (minutes == null || minutes <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            t(
+              'Masukkan interval menit yang valid.',
+              'Enter a valid interval in minutes.',
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+    await _selectSchedule(minutes);
   }
 
   Future<void> _checkUpdate() async {
@@ -89,12 +152,20 @@ class _AppSettingsSheetState extends State<AppSettingsSheet> {
               const SizedBox(height: 18),
               Text(
                 t('Pengaturan', 'Settings'),
-                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+                style: const TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.w900,
+                ),
               ),
               const SizedBox(height: 4),
               Text(
-                t('Semua pengaturan aplikasi ada di satu tempat.', 'All app settings in one place.'),
-                style: TextStyle(color: colors.onSurface.withValues(alpha: 0.62)),
+                t(
+                  'Semua pengaturan aplikasi ada di satu tempat.',
+                  'All app settings in one place.',
+                ),
+                style: TextStyle(
+                  color: colors.onSurface.withValues(alpha: 0.62),
+                ),
               ),
               const SizedBox(height: 20),
               _SectionTitle(title: t('Bahasa', 'Language')),
@@ -105,7 +176,10 @@ class _AppSettingsSheetState extends State<AppSettingsSheet> {
                   labelText: t('Bahasa aplikasi', 'App language'),
                 ),
                 items: const [
-                  DropdownMenuItem(value: 'id', child: Text('Bahasa Indonesia')),
+                  DropdownMenuItem(
+                    value: 'id',
+                    child: Text('Bahasa Indonesia'),
+                  ),
                   DropdownMenuItem(value: 'en', child: Text('English')),
                 ],
                 onChanged: (value) {
@@ -145,7 +219,10 @@ class _AppSettingsSheetState extends State<AppSettingsSheet> {
               _SettingsAction(
                 icon: Icons.backup_outlined,
                 title: t('Backup data', 'Back up data'),
-                subtitle: t('Simpan file .bibzcup yang aman.', 'Save a protected .bibzcup file.'),
+                subtitle: t(
+                  'Simpan file .bibzcup yang aman.',
+                  'Save a protected .bibzcup file.',
+                ),
                 onTap: widget.onBackup,
               ),
               if (widget.onBackupToDrive != null)
@@ -161,7 +238,10 @@ class _AppSettingsSheetState extends State<AppSettingsSheet> {
               _SettingsAction(
                 icon: Icons.restore_rounded,
                 title: t('Restore data', 'Restore data'),
-                subtitle: t('Pulihkan hanya backup .bibzcup yang valid.', 'Restore only valid .bibzcup backups.'),
+                subtitle: t(
+                  'Pulihkan hanya backup .bibzcup yang valid.',
+                  'Restore only valid .bibzcup backups.',
+                ),
                 onTap: widget.onRestore,
               ),
               const SizedBox(height: 20),
@@ -170,21 +250,94 @@ class _AppSettingsSheetState extends State<AppSettingsSheet> {
                 icon: Icons.system_update_alt_rounded,
                 title: t('Cek pembaruan', 'Check for updates'),
                 subtitle: _checkingUpdate
-                    ? t('Sedang memeriksa version-latest.json...', 'Checking version-latest.json...')
-                    : t('Cek versi terbaru dari GitHub.', 'Check the latest version from GitHub.'),
+                    ? t(
+                        'Sedang memeriksa metadata GitHub/Gist...',
+                        'Checking GitHub/Gist metadata...',
+                      )
+                    : t(
+                        'Cek versi terbaru dari GitHub dan Gist.',
+                        'Check the latest version from GitHub and Gist.',
+                      ),
                 trailing: _checkingUpdate
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : null,
                 onTap: _checkingUpdate ? null : _checkUpdate,
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<int>(
+                value: _schedulePresets.contains(_updateScheduleMinutes)
+                    ? _updateScheduleMinutes
+                    : null,
+                decoration: InputDecoration(
+                  prefixIcon: const Icon(Icons.schedule_rounded),
+                  labelText: t('Jadwal cek otomatis', 'Automatic update check'),
+                ),
+                hint: Text(
+                  _updateScheduleMinutes > 0
+                      ? _scheduleLabel(_updateScheduleMinutes)
+                      : t('Pilih jadwal', 'Choose a schedule'),
+                ),
+                items: _schedulePresets
+                    .map(
+                      (minutes) => DropdownMenuItem<int>(
+                        value: minutes,
+                        child: Text(_scheduleLabel(minutes)),
+                      ),
+                    )
+                    .toList(),
+                onChanged: (value) {
+                  if (value != null) _selectSchedule(value);
+                },
+              ),
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _customScheduleController,
+                      keyboardType: TextInputType.number,
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.tune_rounded),
+                        labelText: t(
+                          'Interval custom (menit)',
+                          'Custom interval (minutes)',
+                        ),
+                        helperText: t(
+                          'Background Android minimal 15 menit; per menit aktif saat aplikasi terbuka.',
+                          'Android background minimum is 15 minutes; per-minute runs while app is open.',
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: IconButton.filledTonal(
+                      onPressed: _saveCustomSchedule,
+                      tooltip: t('Simpan jadwal', 'Save schedule'),
+                      icon: const Icon(Icons.check_rounded),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 20),
               _SectionTitle(title: t('Penyimpanan', 'Storage')),
               _SettingsAction(
                 icon: Icons.cleaning_services_outlined,
                 title: t('Hapus cache', 'Clear cache'),
-                subtitle: '${t('Cache aplikasi', 'App cache')}: ${widget.cacheInfo}',
+                subtitle:
+                    '${t('Cache aplikasi', 'App cache')}: ${widget.cacheInfo}',
                 trailing: _clearingCache
-                    ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : null,
                 onTap: _clearingCache ? null : _clearCache,
               ),
@@ -194,7 +347,10 @@ class _AppSettingsSheetState extends State<AppSettingsSheet> {
                   'Cache hanya berisi data sementara seperti gambar dashboard dan paket update yang belum dipasang.',
                   'Cache contains temporary data such as dashboard images and pending update packages.',
                 ),
-                style: TextStyle(fontSize: 12, color: colors.onSurface.withValues(alpha: 0.56)),
+                style: TextStyle(
+                  fontSize: 12,
+                  color: colors.onSurface.withValues(alpha: 0.56),
+                ),
               ),
             ],
           ),

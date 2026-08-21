@@ -56,6 +56,8 @@ class AppUpdateService {
       'https://api.github.com/repos/XbibzOfficial777/catatan-pengeluaran/contents/version-latest.json?ref=main';
   static const latestJsonUrl =
       'https://raw.githubusercontent.com/XbibzOfficial777/catatan-pengeluaran/main/version-latest.json';
+  static const gistRawUrl =
+      'https://gist.githubusercontent.com/XbibzOfficial777/20f87b7340eaa4ebc8f9ba3c4230842c/raw/version-latest.json';
   static const changelogUrl =
       'https://raw.githubusercontent.com/XbibzOfficial777/catatan-pengeluaran/main/CHANGELOG.MD';
   static const _channel = MethodChannel('catatan/app_update');
@@ -93,6 +95,12 @@ class AppUpdateService {
     // rate limit publik dan dapat mengembalikan HTTP 403 pada perangkat user.
     final sources = <({String url, bool contentsApi})>[
       (url: rawUrl.toString(), contentsApi: false),
+      (
+        url: Uri.parse(gistRawUrl)
+            .replace(queryParameters: <String, String>{'cacheBust': cacheBust})
+            .toString(),
+        contentsApi: false,
+      ),
       (url: latestJsonApiUrl, contentsApi: true),
     ];
     for (final source in sources) {
@@ -146,6 +154,26 @@ class AppUpdateService {
     if (decoded is! Map)
       throw const FormatException('Format update tidak valid.');
     return AppUpdateInfo.fromJson(Map<String, dynamic>.from(decoded));
+  }
+
+  Future<bool> prefersArm64Apk() async {
+    if (!supportsApkInstall) return false;
+    try {
+      final result = await _channel.invokeMethod<List<dynamic>>(
+        'get_supported_abis',
+      );
+      return result?.any((abi) => abi.toString() == 'arm64-v8a') ?? false;
+    } catch (_) {
+      // Universal APK remains the safe fallback when native ABI detection fails.
+      return false;
+    }
+  }
+
+  Future<void> configureBackgroundSchedule(int intervalMinutes) async {
+    if (!supportsApkInstall) return;
+    await _channel.invokeMethod<void>('schedule_update_check', {
+      'minutes': intervalMinutes.clamp(0, 10080).toInt(),
+    });
   }
 
   Future<String> fetchChangelog() async {

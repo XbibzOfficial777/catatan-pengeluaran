@@ -2,6 +2,20 @@
 
 Semua perubahan penting pada **Catatan Pengeluaran** dicatat di dokumen ini.
 
+## [1.3.9] - 2026-08-21
+
+### Added
+
+- Fallback metadata updater melalui Gist publik setelah raw GitHub dan sebelum Contents API.
+- Deteksi ABI Android melalui `Build.SUPPORTED_ABIS` untuk memilih APK arm64-v8a atau universal secara otomatis.
+- Fallback unduhan dari APK arm64-v8a ke APK universal bila asset arm64 gagal diambil.
+- Jadwal cek update dengan pilihan nonaktif, per menit saat aplikasi terbuka, 15 menit, per jam, 6 jam, per hari, dan interval custom.
+
+### Improved
+
+- Scheduler background Android memakai alarm inexact dengan batas praktis minimum 15 menit; interval lebih kecil tetap berjalan sebagai timer foreground.
+- Metadata versi dan release notes diperbarui ke build 18.
+
 ## [1.3.8] - 2026-08-21
 
 ### Improved

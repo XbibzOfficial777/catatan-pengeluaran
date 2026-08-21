@@ -47,6 +47,14 @@
         </provider>
         <receiver android:exported="false" android:name="com.dexterous.flutterlocalnotifications.ScheduledNotificationReceiver" />
         <receiver
+            android:name=".UpdateCheckReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+        <receiver
             android:name=".FinanceWidgetProvider"
             android:exported="false"
             android:label="Catatan Pengeluaran">

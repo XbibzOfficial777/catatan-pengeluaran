@@ -108,6 +108,7 @@ class FinanceStorage {
   static const _savingsKey = 'savings_goals_v1';
   static const _onboardingKey = 'onboarding_completed_v1';
   static const _lastSeenVersionKey = 'last_seen_app_version_v1';
+  static const _updateScheduleKey = 'update_check_interval_minutes_v1';
 
   Future<String> loadLanguage() async {
     final preferences = await SharedPreferences.getInstance();
@@ -138,6 +139,20 @@ class FinanceStorage {
       _enqueueWrite(() async {
         final preferences = await SharedPreferences.getInstance();
         await preferences.setString(_lastSeenVersionKey, version);
+      });
+
+  Future<int> loadUpdateCheckIntervalMinutes() async {
+    final preferences = await SharedPreferences.getInstance();
+    return preferences.getInt(_updateScheduleKey) ?? 0;
+  }
+
+  Future<void> saveUpdateCheckIntervalMinutes(int minutes) =>
+      _enqueueWrite(() async {
+        final preferences = await SharedPreferences.getInstance();
+        await preferences.setInt(
+          _updateScheduleKey,
+          minutes.clamp(0, 10080).toInt(),
+        );
       });
 
   Future<List<ExpenseEntry>> loadExpenses() async {
