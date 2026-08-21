@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
 
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -17,6 +16,7 @@ import 'models/json_helpers.dart';
 import 'widgets/calculator_sheet.dart';
 import 'widgets/communication_sheet.dart';
 import 'widgets/finance_tiles.dart';
+import 'widgets/entry_actions.dart';
 import 'services/finance_calc.dart';
 import 'services/finance_storage.dart';
 import 'services/image_attachment_service.dart';
@@ -39,10 +39,10 @@ import 'widgets/analytics_sheet.dart';
 import 'widgets/expense_filter_dialog.dart';
 import 'widgets/savings_sheet.dart';
 import 'widgets/app_settings_sheet.dart';
+import 'widgets/update_and_onboarding_dialogs.dart';
 
 import 'package:share_plus/share_plus.dart';
 import 'package:home_widget/home_widget.dart';
-
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -154,7 +154,9 @@ class _CatatanPengeluaranAppState extends State<CatatanPengeluaranApp> {
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: scheme.primary, width: 1.5),
         ),
-        labelStyle: TextStyle(color: isDark ? const Color(0xFFA8B5C9) : warmSlate),
+        labelStyle: TextStyle(
+          color: isDark ? const Color(0xFFA8B5C9) : warmSlate,
+        ),
       ),
       navigationBarTheme: NavigationBarThemeData(
         backgroundColor: scheme.surface,
@@ -374,6 +376,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   String _expenseQuery = '';
   final Set<String> _selectedExpenseIds = <String>{};
   bool _isSelectingExpenses = false;
+  bool _postLaunchNoticeStarted = false;
 
   static const _quickActionChannel = MethodChannel('catatan/quick_actions');
 
@@ -427,7 +430,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       }
     }
     try {
-      await ReminderService.instance.syncAll(_allReminderSchedules(reminders, savings));
+      await ReminderService.instance.syncAll(
+        _allReminderSchedules(reminders, savings),
+      );
     } catch (_) {
       // A missing notification permission must not block the finance dashboard.
     }
@@ -476,6 +481,56 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         ),
       );
     }
+    await _maybeShowOnboardingOrChangelog();
+  }
+
+  Future<void> _maybeShowOnboardingOrChangelog() async {
+    if (_postLaunchNoticeStarted || !mounted) return;
+    _postLaunchNoticeStarted = true;
+    var version = '1.3.6';
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      if (packageInfo.version.trim().isNotEmpty) {
+        version = packageInfo.version.trim();
+      }
+    } catch (_) {
+      // Test/web environments may not expose the native PackageInfo plugin.
+    }
+    final onboardingCompleted = await _storage.loadOnboardingCompleted();
+    final lastSeenVersion = await _storage.loadLastSeenAppVersion();
+    if (!mounted) return;
+    final isNewInstall =
+        !onboardingCompleted &&
+        lastSeenVersion == null &&
+        _expenses.isEmpty &&
+        _debts.isEmpty &&
+        _savings.isEmpty &&
+        _accounts.isEmpty;
+    if (isNewInstall) {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const FirstRunOnboardingDialog(),
+      );
+      await _storage.saveOnboardingCompleted();
+      await _storage.saveLastSeenAppVersion(version);
+      return;
+    }
+    if (!onboardingCompleted) await _storage.saveOnboardingCompleted();
+    if (!mounted || lastSeenVersion == version) return;
+    String changelog;
+    try {
+      changelog = await AppUpdateService.instance.fetchChangelog();
+    } catch (_) {
+      changelog =
+          'Pembaruan $version berhasil dipasang. Changelog GitHub belum dapat dimuat saat ini.';
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => ChangelogDialog(version: version, content: changelog),
+    );
+    await _storage.saveLastSeenAppVersion(version);
   }
 
   Future<void> _syncHomeWidget() async {
@@ -574,10 +629,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   ) => FinanceCalc.remapRecurringAccounts(items, idMap);
 
   FinanceTotals get _totals => FinanceCalc.totals(
-        expenses: _expenses,
-        debts: _debts,
-        pocketMoney: _pocketMoney,
-      );
+    expenses: _expenses,
+    debts: _debts,
+    pocketMoney: _pocketMoney,
+  );
   double get _totalExpense => _totals.totalExpense;
   double get _remainingPocketMoney => _totals.remainingPocketMoney;
   double get _payable => _totals.payable;
@@ -648,7 +703,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text('Hapus ${selected.length} pengeluaran?'),
-        content: const Text('Transaksi terpilih dan foto lampirannya akan dihapus.'),
+        content: const Text(
+          'Transaksi terpilih dan foto lampirannya akan dihapus.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
@@ -812,8 +869,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       );
     } catch (error) {
       if (mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('PDF gagal dibuat: $error')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('PDF gagal dibuat: $error')));
     }
   }
 
@@ -872,6 +930,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       builder: (_) => SavingsSettingsSheet(
         initialGoals: _savings,
         imageService: _imageService,
+        onGoalsChanged: (goals) {
+          if (!mounted) return;
+          setState(() => _savings = [...goals]);
+          _saveSavings();
+        },
       ),
     );
     if (updated == null || !mounted) return;
@@ -974,7 +1037,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     await _syncHomeWidget();
   }
 
-  void _showExpenseForm({ExpenseEntry? entry}) async {
+  Future<void> _showExpenseForm({ExpenseEntry? entry}) async {
     final result = await showModalBottomSheet<ExpenseEntry>(
       context: context,
       isScrollControlled: true,
@@ -1000,7 +1063,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     await _syncHomeWidget();
   }
 
-  void _showDebtForm({DebtEntry? entry}) async {
+  Future<void> _showDebtForm({DebtEntry? entry}) async {
     final result = await showModalBottomSheet<DebtEntry>(
       context: context,
       isScrollControlled: true,
@@ -1086,6 +1149,131 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     await _saveDebts();
   }
 
+  Future<void> _markExpenseSettled(ExpenseEntry entry) async {
+    final index = _expenses.indexWhere((item) => item.id == entry.id);
+    if (index == -1 || entry.isSettled) return;
+    setState(() => _expenses[index] = entry.copyWith(isSettled: true));
+    await _saveExpenses();
+  }
+
+  Future<void> _markDebtSettled(DebtEntry entry) async {
+    final index = _debts.indexWhere((item) => item.id == entry.id);
+    if (index == -1 || entry.isSettled) return;
+    setState(() => _debts[index] = entry.copyWith(isSettled: true));
+    await _saveDebts();
+  }
+
+  Future<void> _showEntryActions(Object entry) async {
+    final isExpense = entry is ExpenseEntry;
+    final isSettled = isExpense
+        ? (entry as ExpenseEntry).isSettled
+        : (entry as DebtEntry).isSettled;
+    final title = isExpense
+        ? (entry as ExpenseEntry).title
+        : (entry as DebtEntry).person;
+    final action = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (sheetContext) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: Icon(
+                isExpense
+                    ? Icons.receipt_long_outlined
+                    : Icons.handshake_outlined,
+              ),
+              title: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
+              subtitle: const Text('Pilih tindakan untuk catatan ini'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit_outlined),
+              title: const Text('Edit'),
+              onTap: () => Navigator.pop(sheetContext, 'edit'),
+            ),
+            ListTile(
+              enabled: !isSettled,
+              leading: const Icon(Icons.check_circle_outline_rounded),
+              title: Text(isSettled ? 'Sudah lunas' : 'Tandai lunas'),
+              onTap: isSettled
+                  ? null
+                  : () => Navigator.pop(sheetContext, 'settle'),
+            ),
+            ListTile(
+              leading: Icon(
+                Icons.delete_outline_rounded,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              title: Text(
+                'Hapus',
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+              onTap: () => Navigator.pop(sheetContext, 'delete'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    if (action == 'edit') {
+      if (entry is ExpenseEntry) {
+        await _showExpenseForm(entry: entry);
+      } else {
+        await _showDebtForm(entry: entry as DebtEntry);
+      }
+    } else if (action == 'settle') {
+      if (entry is ExpenseEntry) {
+        await _markExpenseSettled(entry);
+      } else {
+        await _markDebtSettled(entry as DebtEntry);
+      }
+    } else if (action == 'delete') {
+      final confirmed = await confirmDeleteEntry(context, entry);
+      if (!confirmed || !mounted) return;
+      if (entry is ExpenseEntry) {
+        await _deleteExpense(entry);
+      } else {
+        await _deleteDebt(entry as DebtEntry);
+      }
+    }
+  }
+
+  Future<void> _showAttachmentPreview(String? path) async {
+    if (path == null || path.trim().isEmpty) return;
+    final file = File(path);
+    if (!await file.exists()) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Lampiran gambar sudah tidak tersedia.'),
+          ),
+        );
+      }
+      return;
+    }
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (_) => Dialog(
+        clipBehavior: Clip.antiAlias,
+        child: InteractiveViewer(
+          minScale: 0.8,
+          maxScale: 4,
+          child: Image.file(
+            file,
+            fit: BoxFit.contain,
+            cacheWidth: 1600,
+            errorBuilder: (_, __, ___) => const SizedBox(
+              height: 220,
+              child: Center(child: Icon(Icons.broken_image_outlined, size: 48)),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _createBackup() async {
     try {
       final file = await _backupService.createBackup(
@@ -1155,7 +1343,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         ShareParams(
           title: 'Backup Catatan Pengeluaran',
           subject: 'Backup Catatan Pengeluaran',
-          text: 'Pilih Google Drive pada menu berbagi untuk menyimpan backup ini.',
+          text:
+              'Pilih Google Drive pada menu berbagi untuk menyimpan backup ini.',
           files: [XFile(file.path, mimeType: 'application/zip')],
           fileNameOverrides: [file.path.split('/').last],
         ),
@@ -1236,7 +1425,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           _pocketMoney = restored.pocketMoney;
           _reminders = [...restored.reminders];
           _budgets = [...restored.budgets];
-          _recurring = _remapRecurringAccounts(restored.recurring, accountIdMap);
+          _recurring = _remapRecurringAccounts(
+            restored.recurring,
+            accountIdMap,
+          );
           _savings = [...restored.savingsGoals];
           _privacyEnabled = restored.privacyMode;
           PrivacyMask.enabled = _privacyEnabled;
@@ -1291,7 +1483,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       await _saveSavings();
       await _storage.savePrivacyMode(_privacyEnabled);
       try {
-        await ReminderService.instance.syncAll(_allReminderSchedules(_reminders, _savings));
+        await ReminderService.instance.syncAll(
+          _allReminderSchedules(_reminders, _savings),
+        );
       } catch (_) {
         // Restore data must remain successful even when notification permission is denied.
       }
@@ -1326,11 +1520,13 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         ShareParams(
           title: 'Spreadsheet Catatan Pengeluaran',
           subject: 'Laporan Catatan Pengeluaran',
-          text: 'Spreadsheet profesional Catatan Pengeluaran dengan ringkasan, transaksi, dan hutang/piutang.',
+          text:
+              'Spreadsheet profesional Catatan Pengeluaran dengan ringkasan, transaksi, dan hutang/piutang.',
           files: [
             XFile(
               file.path,
-              mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+              mimeType:
+                  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             ),
           ],
           fileNameOverrides: [file.path.split('/').last],
@@ -1460,7 +1656,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     await _refreshCacheInfo();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Cache sementara berhasil dibersihkan. Foto lampiran tetap aman.')),
+        const SnackBar(
+          content: Text(
+            'Cache sementara berhasil dibersihkan. Foto lampiran tetap aman.',
+          ),
+        ),
       );
     }
   }
@@ -1472,12 +1672,15 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       final currentCode = int.tryParse(current.buildNumber) ?? 0;
       // Android uses versionCode as the authoritative install/update order.
       // A changed display version with the same code is not installable as an update.
-      final hasUpdate = latest.versionCode > currentCode ||
+      final hasUpdate =
+          latest.versionCode > currentCode ||
           (currentCode == 0 && latest.version != current.version);
       if (!mounted) return;
       if (!hasUpdate) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Aplikasi sudah versi terbaru (${current.version}).')),
+          SnackBar(
+            content: Text('Aplikasi sudah versi terbaru (${current.version}).'),
+          ),
         );
         return;
       }
@@ -1496,14 +1699,17 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       await _showUpdateDialog(current.version, latest);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Cek update gagal: $error')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Cek update gagal: $error')));
       }
     }
   }
 
-  Future<void> _showUpdateDialog(String currentVersion, AppUpdateInfo latest) async {
+  Future<void> _showUpdateDialog(
+    String currentVersion,
+    AppUpdateInfo latest,
+  ) async {
     var downloading = false;
     var progress = 0.0;
     String? errorMessage;
@@ -1519,26 +1725,41 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Versi saat ini: $currentVersion\nVersi terbaru: ${latest.version}'),
+                Text(
+                  'Versi saat ini: $currentVersion\nVersi terbaru: ${latest.version}',
+                ),
                 if (latest.releaseNotes.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   Text(latest.releaseNotes),
                 ],
                 if (downloading) ...[
                   const SizedBox(height: 18),
-                  LinearProgressIndicator(value: progress == 0 ? null : progress),
+                  LinearProgressIndicator(
+                    value: progress == 0 ? null : progress,
+                  ),
                   const SizedBox(height: 8),
-                  Text(progress == 0 ? 'Menyiapkan unduhan...' : 'Mengunduh $percent%'),
+                  Text(
+                    progress == 0
+                        ? 'Menyiapkan unduhan...'
+                        : 'Mengunduh $percent%',
+                  ),
                 ],
                 if (errorMessage != null) ...[
                   const SizedBox(height: 12),
-                  Text(errorMessage!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  Text(
+                    errorMessage!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
                 ],
               ],
             ),
             actions: [
               TextButton(
-                onPressed: downloading ? null : () => Navigator.pop(dialogContext),
+                onPressed: downloading
+                    ? null
+                    : () => Navigator.pop(dialogContext),
                 child: const Text('Nanti'),
               ),
               FilledButton.icon(
@@ -1560,16 +1781,19 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                               });
                             },
                           );
-                          if (dialogContext.mounted) Navigator.pop(dialogContext);
+                          if (dialogContext.mounted)
+                            Navigator.pop(dialogContext);
                           await AppUpdateService.instance.installApk(path);
                           Future<void>.delayed(const Duration(seconds: 45), () {
-                            return AppUpdateService.instance.cleanupDownloadedApks();
+                            return AppUpdateService.instance
+                                .cleanupDownloadedApks();
                           });
                         } catch (error) {
                           if (dialogContext.mounted) {
                             setDialogState(() {
                               downloading = false;
-                              errorMessage = 'Download atau instalasi gagal: $error';
+                              errorMessage =
+                                  'Download atau instalasi gagal: $error';
                             });
                           }
                         }
@@ -1814,10 +2038,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           ..._savings.map(
             (goal) => Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: SavingsOverviewCard(
-                goal: goal,
-                onTap: _openSavings,
-              ),
+              child: SavingsOverviewCard(goal: goal, onTap: _openSavings),
             ),
           ),
       ],
@@ -1898,6 +2119,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                   entry: item.value,
                   onTap: () => _showExpenseForm(entry: item.value),
                   onDelete: () => _deleteExpense(item.value),
+                  onLongPress: () => _showEntryActions(item.value),
+                  onAttachmentTap: () =>
+                      _showAttachmentPreview(item.value.imagePath),
                 ),
               ),
             ),
@@ -2007,8 +2231,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
             Expanded(
               child: Text(
                 'Saldo akun/dompet (di luar Uang Saku)',
-                style: Theme.of(context).textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w800),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
               ),
             ),
             TextButton.icon(
@@ -2219,7 +2444,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       _expenses
           .where(
             (entry) =>
-                entry.date.year == today.year && entry.date.month == today.month,
+                entry.date.year == today.year &&
+                entry.date.month == today.month,
           )
           .fold(0.0, (sum, entry) => sum + entry.amount),
     );
@@ -2439,6 +2665,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                     ? _toggleExpenseSelection(entry.id)
                     : _showExpenseForm(entry: entry),
                 onDelete: () => _deleteExpense(entry),
+                onLongPress: _isSelectingExpenses
+                    ? null
+                    : () => _showEntryActions(entry),
+                onAttachmentTap: () => _showAttachmentPreview(entry.imagePath),
                 selectable: _isSelectingExpenses,
                 selected: _selectedExpenseIds.contains(entry.id),
                 onSelect: () => _toggleExpenseSelection(entry.id),
@@ -2623,8 +2853,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                   Text(
                     subtitle,
                     style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface
-                          .withValues(alpha: 0.58),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.58),
                       fontSize: 12,
                     ),
                   ),
@@ -2657,15 +2888,17 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
               color: Theme.of(context).colorScheme.surface,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color: Theme.of(context).colorScheme.outline
-                    .withValues(alpha: 0.65),
+                color: Theme.of(
+                  context,
+                ).colorScheme.outline.withValues(alpha: 0.65),
               ),
             ),
             child: Text(
               'Belum ada catatan di bagian ini.',
               style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurface
-                    .withValues(alpha: 0.58),
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: 0.58),
                 fontSize: 13,
               ),
             ),
@@ -2680,6 +2913,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                 onTap: () => _showDebtForm(entry: entry),
                 onDelete: () => _deleteDebt(entry),
                 onCommunicate: () => _openCommunication(entry),
+                onLongPress: () => _showEntryActions(entry),
+                onAttachmentTap: () => _showAttachmentPreview(entry.imagePath),
               ),
             ),
           ),
@@ -2761,13 +2996,4 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   }
 }
 
-
-
-
-
 enum RestoreMode { merge, replace }
-
-
-
-
-

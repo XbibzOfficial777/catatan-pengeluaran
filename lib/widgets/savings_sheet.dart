@@ -12,10 +12,12 @@ class SavingsSettingsSheet extends StatefulWidget {
     super.key,
     required this.initialGoals,
     required this.imageService,
+    this.onGoalsChanged,
   });
 
   final List<SavingsGoal> initialGoals;
   final ImageAttachmentService imageService;
+  final ValueChanged<List<SavingsGoal>>? onGoalsChanged;
 
   @override
   State<SavingsSettingsSheet> createState() => _SavingsSettingsSheetState();
@@ -52,6 +54,7 @@ class _SavingsSettingsSheetState extends State<SavingsSettingsSheet> {
         _goals[index] = result;
       }
     });
+    widget.onGoalsChanged?.call(List<SavingsGoal>.unmodifiable(_goals));
   }
 
   Future<void> _delete(SavingsGoal goal) async {
@@ -79,6 +82,7 @@ class _SavingsSettingsSheetState extends State<SavingsSettingsSheet> {
     await widget.imageService.delete(goal.photoPath);
     if (!mounted) return;
     setState(() => _goals.removeWhere((item) => item.id == goal.id));
+    widget.onGoalsChanged?.call(List<SavingsGoal>.unmodifiable(_goals));
   }
 
   @override
@@ -502,4 +506,3 @@ class _GoalPhoto extends StatelessWidget {
     );
   }
 }
-

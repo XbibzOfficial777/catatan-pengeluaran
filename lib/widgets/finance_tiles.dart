@@ -261,7 +261,10 @@ class SavingsOverviewCard extends StatelessWidget {
                         )
                       : ColoredBox(
                           color: colors.primary.withValues(alpha: 0.1),
-                          child: Icon(Icons.savings_outlined, color: colors.primary),
+                          child: Icon(
+                            Icons.savings_outlined,
+                            color: colors.primary,
+                          ),
                         ),
                 ),
               ),
@@ -270,7 +273,10 @@ class SavingsOverviewCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(goal.name, style: const TextStyle(fontWeight: FontWeight.w900)),
+                    Text(
+                      goal.name,
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
                     const SizedBox(height: 5),
                     LinearProgressIndicator(
                       value: goal.progress,
@@ -301,6 +307,8 @@ class ExpenseTile extends StatelessWidget {
     required this.entry,
     required this.onTap,
     required this.onDelete,
+    this.onLongPress,
+    this.onAttachmentTap,
     this.selectable = false,
     this.selected = false,
     this.onSelect,
@@ -308,6 +316,8 @@ class ExpenseTile extends StatelessWidget {
   final ExpenseEntry entry;
   final VoidCallback onTap;
   final VoidCallback onDelete;
+  final VoidCallback? onLongPress;
+  final VoidCallback? onAttachmentTap;
   final bool selectable;
   final bool selected;
   final VoidCallback? onSelect;
@@ -337,6 +347,7 @@ class ExpenseTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           child: InkWell(
             onTap: onTap,
+            onLongPress: onLongPress,
             borderRadius: BorderRadius.circular(12),
             child: Padding(
               padding: const EdgeInsets.all(13),
@@ -390,10 +401,9 @@ class ExpenseTile extends StatelessWidget {
                       ),
                       if (entry.imagePath != null) ...[
                         const SizedBox(height: 5),
-                        Icon(
-                          Icons.image_outlined,
-                          size: 14,
-                          color: colors.primary,
+                        _AttachmentThumbnail(
+                          path: entry.imagePath!,
+                          onTap: onAttachmentTap,
                         ),
                       ],
                     ],
@@ -415,12 +425,16 @@ class DebtTile extends StatelessWidget {
     required this.onTap,
     required this.onDelete,
     required this.onCommunicate,
+    this.onLongPress,
+    this.onAttachmentTap,
   });
   final DebtEntry entry;
   final VoidCallback onToggle;
   final VoidCallback onTap;
   final VoidCallback onDelete;
   final VoidCallback onCommunicate;
+  final VoidCallback? onLongPress;
+  final VoidCallback? onAttachmentTap;
 
   @override
   Widget build(BuildContext context) {
@@ -446,6 +460,7 @@ class DebtTile extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           child: InkWell(
             onTap: onTap,
+            onLongPress: onLongPress,
             borderRadius: BorderRadius.circular(12),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(8, 12, 12, 12),
@@ -527,6 +542,13 @@ class DebtTile extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 2),
+                  if (entry.imagePath != null) ...[
+                    _AttachmentThumbnail(
+                      path: entry.imagePath!,
+                      onTap: onAttachmentTap,
+                    ),
+                    const SizedBox(width: 6),
+                  ],
                   Text(
                     formatCurrency(entry.amount),
                     style: TextStyle(
@@ -543,6 +565,56 @@ class DebtTile extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _AttachmentThumbnail extends StatelessWidget {
+  const _AttachmentThumbnail({required this.path, this.onTap});
+
+  final String path;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    final file = File(path);
+    final child = ClipRRect(
+      borderRadius: BorderRadius.circular(7),
+      child: SizedBox(
+        width: 30,
+        height: 30,
+        child: file.existsSync()
+            ? Image.file(
+                file,
+                fit: BoxFit.cover,
+                cacheWidth: 90,
+                cacheHeight: 90,
+                errorBuilder: (_, __, ___) => ColoredBox(
+                  color: colors.primary.withValues(alpha: 0.12),
+                  child: Icon(
+                    Icons.broken_image_outlined,
+                    size: 16,
+                    color: colors.primary,
+                  ),
+                ),
+              )
+            : ColoredBox(
+                color: colors.primary.withValues(alpha: 0.12),
+                child: Icon(
+                  Icons.broken_image_outlined,
+                  size: 16,
+                  color: colors.primary,
+                ),
+              ),
+      ),
+    );
+    return Semantics(
+      button: onTap != null,
+      label: 'Lampiran gambar',
+      child: onTap == null
+          ? child
+          : GestureDetector(onTap: onTap, child: child),
     );
   }
 }

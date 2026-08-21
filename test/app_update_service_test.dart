@@ -10,7 +10,9 @@ void main() {
     test('https GitHub resmi diizinkan', () {
       expect(
         AppUpdateService.isAllowedApkUrl(
-          Uri.parse('https://github.com/XbibzOfficial777/catatan-pengeluaran/releases/latest/download/app.apk'),
+          Uri.parse(
+            'https://github.com/XbibzOfficial777/catatan-pengeluaran/releases/latest/download/app.apk',
+          ),
         ),
         isTrue,
       );
@@ -31,24 +33,44 @@ void main() {
     test('http, host asing, dan host menyerupai GitHub palsu ditolak', () {
       expect(
         AppUpdateService.isAllowedApkUrl(
-          Uri.parse('http://github.com/XbibzOfficial777/catatan-pengeluaran/releases/download/x/app.apk'),
+          Uri.parse(
+            'http://github.com/XbibzOfficial777/catatan-pengeluaran/releases/download/x/app.apk',
+          ),
         ),
         isFalse,
         reason: 'http harus ditolak agar jalur unduhan tidak bisa di-downgrade',
       );
       expect(
-        AppUpdateService.isAllowedApkUrl(Uri.parse('https://evil.example.com/app.apk')),
+        AppUpdateService.isAllowedApkUrl(
+          Uri.parse('https://evil.example.com/app.apk'),
+        ),
         isFalse,
       );
       expect(
-        AppUpdateService.isAllowedApkUrl(Uri.parse('https://github.com.evil.com/app.apk')),
+        AppUpdateService.isAllowedApkUrl(
+          Uri.parse('https://github.com.evil.com/app.apk'),
+        ),
         isFalse,
       );
       expect(
-        AppUpdateService.isAllowedApkUrl(Uri.parse('https://notgithubusercontent.com/app.apk')),
+        AppUpdateService.isAllowedApkUrl(
+          Uri.parse('https://notgithubusercontent.com/app.apk'),
+        ),
         isFalse,
       );
     });
+  });
+
+  test('changelog source is the official GitHub CHANGELOG.MD', () {
+    expect(AppUpdateService.changelogUrl, endsWith('/CHANGELOG.MD'));
+    expect(
+      AppUpdateService.changelogUrl,
+      contains('raw.githubusercontent.com'),
+    );
+    expect(
+      AppUpdateService.changelogUrl,
+      contains('XbibzOfficial777/catatan-pengeluaran'),
+    );
   });
 
   group('AppUpdateInfo metadata', () {
@@ -56,7 +78,8 @@ void main() {
       final primary = AppUpdateInfo.fromJson({
         'version': '1.4.0',
         'versionCode': 12,
-        'universalApkUrl': 'https://github.com/x/y/releases/download/v1/app.apk',
+        'universalApkUrl':
+            'https://github.com/x/y/releases/download/v1/app.apk',
         'arm64ApkUrl': 'https://github.com/x/y/releases/download/v1/app64.apk',
         'sha256Universal': 'aa',
         'sha256Arm64': 'bb',
@@ -128,7 +151,9 @@ void main() {
         file,
         'https://github.com/x/y/universal.apk',
         infoWithChecksum(
-            crypto.sha256.convert('beda'.codeUnits).toString(), 'zz'),
+          crypto.sha256.convert('beda'.codeUnits).toString(),
+          'zz',
+        ),
       );
       expect(result, isNotNull);
       expect(result, contains('tidak cocok'));
@@ -146,16 +171,18 @@ void main() {
       expect(result, isNull);
     });
 
-    test('tanpa checksum yang relevan → null (kompatibilitas metadata lama)',
-        () async {
-      final file = File('${temp.path}/d.apk');
-      await file.writeAsBytes('apapun'.codeUnits);
-      final result = await AppUpdateService.verifyApkChecksum(
-        file,
-        'https://github.com/x/y/universal.apk',
-        infoWithChecksum('', ''),
-      );
-      expect(result, isNull);
-    });
+    test(
+      'tanpa checksum yang relevan → null (kompatibilitas metadata lama)',
+      () async {
+        final file = File('${temp.path}/d.apk');
+        await file.writeAsBytes('apapun'.codeUnits);
+        final result = await AppUpdateService.verifyApkChecksum(
+          file,
+          'https://github.com/x/y/universal.apk',
+          infoWithChecksum('', ''),
+        );
+        expect(result, isNull);
+      },
+    );
   });
 }

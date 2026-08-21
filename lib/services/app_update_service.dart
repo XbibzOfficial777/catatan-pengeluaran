@@ -56,6 +56,8 @@ class AppUpdateService {
       'https://api.github.com/repos/XbibzOfficial777/catatan-pengeluaran/contents/version-latest.json?ref=main';
   static const latestJsonUrl =
       'https://raw.githubusercontent.com/XbibzOfficial777/catatan-pengeluaran/main/version-latest.json';
+  static const changelogUrl =
+      'https://raw.githubusercontent.com/XbibzOfficial777/catatan-pengeluaran/main/CHANGELOG.MD';
   static const _channel = MethodChannel('catatan/app_update');
 
   /// Host yang diizinkan sebagai sumber unduhan APK. Metadata update diambil
@@ -76,7 +78,8 @@ class AppUpdateService {
     if (url.scheme != 'https') return false;
     final host = url.host.toLowerCase();
     if (_allowedApkHosts.contains(host)) return true;
-    return host.endsWith('.githubusercontent.com') || host.endsWith('.github.com');
+    return host.endsWith('.githubusercontent.com') ||
+        host.endsWith('.github.com');
   }
 
   Future<AppUpdateInfo> checkLatest() async {
@@ -105,8 +108,18 @@ class AppUpdateService {
 
   AppUpdateInfo _parseMetadata(String text) {
     final decoded = jsonDecode(text);
-    if (decoded is! Map) throw const FormatException('Format update tidak valid.');
+    if (decoded is! Map)
+      throw const FormatException('Format update tidak valid.');
     return AppUpdateInfo.fromJson(Map<String, dynamic>.from(decoded));
+  }
+
+  Future<String> fetchChangelog() async {
+    final url = Uri.parse(changelogUrl).replace(
+      queryParameters: <String, String>{
+        'cacheBust': DateTime.now().millisecondsSinceEpoch.toString(),
+      },
+    );
+    return _getText(url.toString(), accept: 'text/markdown');
   }
 
   Future<String> download(
@@ -120,7 +133,9 @@ class AppUpdateService {
       if (preferArm64) info.universalApkUrl else info.arm64ApkUrl,
     }..removeWhere((url) => url.isEmpty);
     if (urls.isEmpty) {
-      throw const FormatException('URL APK belum tersedia di version-latest.json.');
+      throw const FormatException(
+        'URL APK belum tersedia di version-latest.json.',
+      );
     }
     final directory = await getTemporaryDirectory();
     // Sanitasi nama versi dari metadata agar tidak bisa menyuntik path.
@@ -131,7 +146,8 @@ class AppUpdateService {
     final file = File(
       '${directory.path}/catatan_pengeluaran_update_$safeVersion.apk',
     );
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 12);
     try {
       HttpException? lastHttpError;
       for (final url in urls) {
@@ -143,10 +159,14 @@ class AppUpdateService {
           continue;
         }
         try {
-          final request = await client.getUrl(parsedUrl).timeout(const Duration(seconds: 15));
+          final request = await client
+              .getUrl(parsedUrl)
+              .timeout(const Duration(seconds: 15));
           request.followRedirects = true;
           request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
-          final response = await request.close().timeout(const Duration(seconds: 30));
+          final response = await request.close().timeout(
+            const Duration(seconds: 30),
+          );
           if (response.statusCode < 200 || response.statusCode >= 300) {
             lastHttpError = HttpException(
               'Download APK HTTP ${response.statusCode} dari $url. Pastikan GitHub Release memiliki asset APK tersebut.',
@@ -181,7 +201,8 @@ class AppUpdateService {
           lastHttpError = error;
         }
       }
-      throw lastHttpError ?? const HttpException('Semua URL APK gagal diakses.');
+      throw lastHttpError ??
+          const HttpException('Semua URL APK gagal diakses.');
     } finally {
       client.close(force: true);
     }
@@ -196,7 +217,11 @@ class AppUpdateService {
   /// Mengembalikan null bila checksum cocok atau tidak tersedia (kompatibilitas
   /// metadata lama), atau pesan error bila tidak cocok.
   @visibleForTesting
-  static Future<String?> verifyApkChecksum(File file, String downloadedUrl, AppUpdateInfo info) {
+  static Future<String?> verifyApkChecksum(
+    File file,
+    String downloadedUrl,
+    AppUpdateInfo info,
+  ) {
     return _verifyChecksum(file, downloadedUrl, info);
   }
 
@@ -233,14 +258,22 @@ class AppUpdateService {
     }
   }
 
-  Future<String> _getText(String url) async {
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+  Future<String> _getText(
+    String url, {
+    String accept = 'application/json',
+  }) async {
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 10);
     try {
-      final request = await client.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 12));
+      final request = await client
+          .getUrl(Uri.parse(url))
+          .timeout(const Duration(seconds: 12));
       request.followRedirects = true;
       request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
-      request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      final response = await request.close().timeout(const Duration(seconds: 15));
+      request.headers.set(HttpHeaders.acceptHeader, accept);
+      final response = await request.close().timeout(
+        const Duration(seconds: 15),
+      );
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpException('Update check HTTP ${response.statusCode}');
       }

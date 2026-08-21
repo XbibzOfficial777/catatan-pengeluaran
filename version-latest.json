@@ -1,7 +1,7 @@
 {
-  "version": "1.3.3",
-  "versionCode": 12,
-  "releaseNotes": "Audit keamanan dan keandalan data, restore lintas perangkat, updater terverifikasi, hardening gambar, serta perbaikan build FlutLab dan Android Release.",
+  "version": "1.3.6",
+  "versionCode": 15,
+  "releaseNotes": "Changelog GitHub, onboarding instalasi pertama, menu tekan lama untuk edit/hapus/lunas, perbaikan hapus Tabungan, dan preview lampiran gambar dari riwayat.",
   "universalApkUrl": "https://github.com/XbibzOfficial777/catatan-pengeluaran/releases/latest/download/Catatan-Pengeluaran-universal.apk",
   "arm64ApkUrl": "https://github.com/XbibzOfficial777/catatan-pengeluaran/releases/latest/download/Catatan-Pengeluaran-arm64-v8a.apk"
 }
