@@ -2,6 +2,7 @@ import 'dart:math' as math;
 
 import '../models/advanced_finance_models.dart';
 import '../models/finance_models.dart';
+import '../models/json_helpers.dart';
 
 class BudgetStatus {
   const BudgetStatus({
@@ -39,17 +40,21 @@ class AdvancedFinanceService {
   }) {
     final target = month ?? DateTime.now();
     return budgets.where((budget) => budget.enabled).map((budget) {
-      final spent = expenses
-          .where(
-            (entry) =>
-                entry.category == budget.category &&
-                entry.date.year == target.year &&
-                entry.date.month == target.month,
-          )
-          .fold(0.0, (sum, entry) => sum + entry.amount);
-      final percent = budget.monthlyLimit <= 0
+      final spent = roundMoney(
+        expenses
+            .where(
+              (entry) =>
+                  entry.category == budget.category &&
+                  entry.date.year == target.year &&
+                  entry.date.month == target.month,
+            )
+            .fold(0.0, (sum, entry) => sum + entry.amount),
+      );
+      final percent = budget.monthlyLimit <= 0 || !budget.monthlyLimit.isFinite
           ? 0.0
-          : (spent / budget.monthlyLimit) * 100;
+          : ((spent / budget.monthlyLimit) * 100)
+                .clamp(0.0, double.maxFinite)
+                .toDouble();
       return BudgetStatus(limit: budget, spent: spent, percent: percent);
     }).toList();
   }
@@ -64,7 +69,9 @@ class AdvancedFinanceService {
     for (final entry in expenses) {
       final values = byCategory[entry.category] ?? const <double>[];
       if (values.length < 3) continue;
-      final average = values.reduce((a, b) => a + b) / values.length;
+      final average = roundMoney(
+        values.reduce((a, b) => a + b) / values.length,
+      );
       final variance =
           values
               .map((value) => math.pow(value - average, 2))

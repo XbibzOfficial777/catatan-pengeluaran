@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../models/json_helpers.dart';
+
 class AppUpdateInfo {
   const AppUpdateInfo({
     required this.version,
@@ -23,13 +25,13 @@ class AppUpdateInfo {
 
   factory AppUpdateInfo.fromJson(Map<String, dynamic> json) {
     String readUrl(String primary, String fallback) =>
-        (json[primary] ?? json[fallback]) as String? ?? '';
+        readString(json[primary] ?? json[fallback]);
     return AppUpdateInfo(
-      version: json['version'] as String? ?? '0.0.0',
-      versionCode: (json['versionCode'] as num?)?.toInt() ?? 0,
+      version: readString(json['version'], fallback: '0.0.0'),
+      versionCode: readInt(json['versionCode']),
       universalApkUrl: readUrl('universalApkUrl', 'universalUrl'),
       arm64ApkUrl: readUrl('arm64ApkUrl', 'downloadUrl'),
-      releaseNotes: json['releaseNotes'] as String? ?? '',
+      releaseNotes: readString(json['releaseNotes']),
     );
   }
 }
@@ -73,7 +75,8 @@ class AppUpdateService {
 
   AppUpdateInfo _parseMetadata(String text) {
     final decoded = jsonDecode(text);
-    if (decoded is! Map) throw const FormatException('Format update tidak valid.');
+    if (decoded is! Map)
+      throw const FormatException('Format update tidak valid.');
     return AppUpdateInfo.fromJson(Map<String, dynamic>.from(decoded));
   }
 
@@ -88,11 +91,20 @@ class AppUpdateService {
       if (preferArm64) info.universalApkUrl else info.arm64ApkUrl,
     }..removeWhere((url) => url.isEmpty);
     if (urls.isEmpty) {
-      throw const FormatException('URL APK belum tersedia di version-latest.json.');
+      throw const FormatException(
+        'URL APK belum tersedia di version-latest.json.',
+      );
     }
     final directory = await getTemporaryDirectory();
-    final file = File('${directory.path}/catatan_pengeluaran_update_${info.version}.apk');
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 12);
+    final safeVersion = info.version.replaceAll(
+      RegExp(r'[^0-9A-Za-z._-]'),
+      '_',
+    );
+    final file = File(
+      '${directory.path}/catatan_pengeluaran_update_$safeVersion.apk',
+    );
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 12);
     try {
       HttpException? lastHttpError;
       for (final url in urls) {
@@ -102,10 +114,14 @@ class AppUpdateService {
           continue;
         }
         try {
-          final request = await client.getUrl(parsedUrl).timeout(const Duration(seconds: 15));
+          final request = await client
+              .getUrl(parsedUrl)
+              .timeout(const Duration(seconds: 15));
           request.followRedirects = true;
           request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
-          final response = await request.close().timeout(const Duration(seconds: 30));
+          final response = await request.close().timeout(
+            const Duration(seconds: 30),
+          );
           if (response.statusCode < 200 || response.statusCode >= 300) {
             lastHttpError = HttpException(
               'Download APK HTTP ${response.statusCode} dari $url. Pastikan GitHub Release memiliki asset APK tersebut.',
@@ -132,7 +148,8 @@ class AppUpdateService {
           lastHttpError = error;
         }
       }
-      throw lastHttpError ?? const HttpException('Semua URL APK gagal diakses.');
+      throw lastHttpError ??
+          const HttpException('Semua URL APK gagal diakses.');
     } finally {
       client.close(force: true);
     }
@@ -159,13 +176,18 @@ class AppUpdateService {
   }
 
   Future<String> _getText(String url) async {
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
+    final client = HttpClient()
+      ..connectionTimeout = const Duration(seconds: 10);
     try {
-      final request = await client.getUrl(Uri.parse(url)).timeout(const Duration(seconds: 12));
+      final request = await client
+          .getUrl(Uri.parse(url))
+          .timeout(const Duration(seconds: 12));
       request.followRedirects = true;
       request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
-      final response = await request.close().timeout(const Duration(seconds: 15));
+      final response = await request.close().timeout(
+        const Duration(seconds: 15),
+      );
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpException('Update check HTTP ${response.statusCode}');
       }

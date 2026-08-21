@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:ui';
 
 import 'package:image_editor_plus/image_editor_plus.dart';
 
@@ -24,6 +25,7 @@ import 'services/report_service.dart';
 import 'services/app_update_service.dart';
 import 'models/reminder_models.dart';
 import 'models/advanced_finance_models.dart';
+import 'models/json_helpers.dart';
 import 'widgets/reminder_settings_sheet.dart';
 import 'widgets/dashboard_image_rail.dart';
 import 'widgets/data_tools_sheet.dart';
@@ -52,6 +54,19 @@ String formatCurrency(double value) => _formatCurrency(value);
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  FlutterError.onError = (details) {
+    FlutterError.presentError(details);
+  };
+  PlatformDispatcher.instance.onError = (error, stack) {
+    FlutterError.presentError(
+      FlutterErrorDetails(
+        exception: error,
+        stack: stack,
+        library: 'unhandled async error',
+      ),
+    );
+    return true;
+  };
   runApp(const CatatanPengeluaranApp());
 }
 
@@ -411,7 +426,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       await _storage.saveExpenses(expenses);
     }
     try {
-      await ReminderService.instance.syncAll(_allReminderSchedules(reminders, savings));
+      await ReminderService.instance.syncAll(
+        _allReminderSchedules(reminders, savings),
+      );
     } catch (_) {
       // A missing notification permission must not block the finance dashboard.
     }
@@ -435,15 +452,19 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
 
   Future<void> _syncHomeWidget() async {
     final now = DateTime.now();
-    final monthExpense = _expenses
-        .where(
-          (entry) =>
-              entry.date.year == now.year && entry.date.month == now.month,
-        )
-        .fold(0.0, (sum, entry) => sum + entry.amount);
-    final totalBalance = _accounts
-        .where((item) => !item.isArchived)
-        .fold(0.0, (sum, item) => sum + item.balance);
+    final monthExpense = roundMoney(
+      _expenses
+          .where(
+            (entry) =>
+                entry.date.year == now.year && entry.date.month == now.month,
+          )
+          .fold(0.0, (sum, entry) => sum + entry.amount),
+    );
+    final totalBalance = roundMoney(
+      _accounts
+          .where((item) => !item.isArchived)
+          .fold(0.0, (sum, item) => sum + item.balance),
+    );
     try {
       await HomeWidget.saveWidgetData<String>(
         'month_expense',
@@ -550,17 +571,24 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       .toList();
 
   double get _totalExpense =>
-      _expenses.fold(0, (sum, item) => sum + item.amount);
-  double get _pocketMoneyExpense => _expenses
-      .where((item) => item.accountId == null)
-      .fold(0, (sum, item) => sum + item.amount);
-  double get _remainingPocketMoney => _pocketMoney - _pocketMoneyExpense;
-  double get _payable => _debts
-      .where((item) => item.kind == DebtKind.payable && !item.isSettled)
-      .fold(0, (sum, item) => sum + item.amount);
-  double get _receivable => _debts
-      .where((item) => item.kind == DebtKind.receivable && !item.isSettled)
-      .fold(0, (sum, item) => sum + item.amount);
+      roundMoney(_expenses.fold(0.0, (sum, item) => sum + item.amount));
+  double get _pocketMoneyExpense => roundMoney(
+    _expenses
+        .where((item) => item.accountId == null)
+        .fold(0.0, (sum, item) => sum + item.amount),
+  );
+  double get _remainingPocketMoney =>
+      roundMoney(_pocketMoney - _pocketMoneyExpense);
+  double get _payable => roundMoney(
+    _debts
+        .where((item) => item.kind == DebtKind.payable && !item.isSettled)
+        .fold(0.0, (sum, item) => sum + item.amount),
+  );
+  double get _receivable => roundMoney(
+    _debts
+        .where((item) => item.kind == DebtKind.receivable && !item.isSettled)
+        .fold(0.0, (sum, item) => sum + item.amount),
+  );
 
   Future<void> _loadImageFeed({bool forceRefresh = false}) async {
     if (mounted) setState(() => _imageFeedLoading = true);
@@ -627,7 +655,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text('Hapus ${selected.length} pengeluaran?'),
-        content: const Text('Transaksi terpilih dan foto lampirannya akan dihapus.'),
+        content: const Text(
+          'Transaksi terpilih dan foto lampirannya akan dihapus.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, false),
@@ -791,8 +821,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       );
     } catch (error) {
       if (mounted)
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('PDF gagal dibuat: $error')));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('PDF gagal dibuat: $error')));
     }
   }
 
@@ -839,17 +870,19 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     List<SavingsGoal> savings,
   ) => [
     ...reminders,
-    ...savings.where((goal) => goal.reminderEnabled).map(
-      (goal) => ReminderSchedule(
-        id: _savingsReminderId(goal.id),
-        title: 'Waktu menabung: ${goal.name}',
-        body: 'Sisihkan sedikit untuk mencapai target ${goal.name}.',
-        hour: goal.reminderHour,
-        minute: goal.reminderMinute,
-        frequency: ReminderFrequency.daily,
-        weekdays: const <int>[],
-      ),
-    ),
+    ...savings
+        .where((goal) => goal.reminderEnabled)
+        .map(
+          (goal) => ReminderSchedule(
+            id: _savingsReminderId(goal.id),
+            title: 'Waktu menabung: ${goal.name}',
+            body: 'Sisihkan sedikit untuk mencapai target ${goal.name}.',
+            hour: goal.reminderHour,
+            minute: goal.reminderMinute,
+            frequency: ReminderFrequency.daily,
+            weekdays: const <int>[],
+          ),
+        ),
   ];
 
   int _savingsReminderId(String id) {
@@ -1133,7 +1166,8 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         ShareParams(
           title: 'Backup Catatan Pengeluaran',
           subject: 'Backup Catatan Pengeluaran',
-          text: 'Pilih Google Drive pada menu berbagi untuk menyimpan backup ini.',
+          text:
+              'Pilih Google Drive pada menu berbagi untuk menyimpan backup ini.',
           files: [XFile(file.path, mimeType: 'application/zip')],
           fileNameOverrides: [file.path.split('/').last],
         ),
@@ -1236,7 +1270,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       await _saveSavings();
       await _storage.savePrivacyMode(_privacyEnabled);
       try {
-        await ReminderService.instance.syncAll(_allReminderSchedules(_reminders, _savings));
+        await ReminderService.instance.syncAll(
+          _allReminderSchedules(_reminders, _savings),
+        );
       } catch (_) {
         // Restore data must remain successful even when notification permission is denied.
       }
@@ -1271,11 +1307,13 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         ShareParams(
           title: 'Spreadsheet Catatan Pengeluaran',
           subject: 'Laporan Catatan Pengeluaran',
-          text: 'Spreadsheet profesional Catatan Pengeluaran dengan ringkasan, transaksi, dan hutang/piutang.',
+          text:
+              'Spreadsheet profesional Catatan Pengeluaran dengan ringkasan, transaksi, dan hutang/piutang.',
           files: [
             XFile(
               file.path,
-              mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+              mimeType:
+                  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             ),
           ],
           fileNameOverrides: [file.path.split('/').last],
@@ -1404,7 +1442,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     await _refreshCacheInfo();
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Cache sementara berhasil dibersihkan. Foto lampiran tetap aman.')),
+        const SnackBar(
+          content: Text(
+            'Cache sementara berhasil dibersihkan. Foto lampiran tetap aman.',
+          ),
+        ),
       );
     }
   }
@@ -1416,12 +1458,15 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       final currentCode = int.tryParse(current.buildNumber) ?? 0;
       // Android uses versionCode as the authoritative install/update order.
       // A changed display version with the same code is not installable as an update.
-      final hasUpdate = latest.versionCode > currentCode ||
+      final hasUpdate =
+          latest.versionCode > currentCode ||
           (currentCode == 0 && latest.version != current.version);
       if (!mounted) return;
       if (!hasUpdate) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Aplikasi sudah versi terbaru (${current.version}).')),
+          SnackBar(
+            content: Text('Aplikasi sudah versi terbaru (${current.version}).'),
+          ),
         );
         return;
       }
@@ -1440,14 +1485,17 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       await _showUpdateDialog(current.version, latest);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Cek update gagal: $error')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Cek update gagal: $error')));
       }
     }
   }
 
-  Future<void> _showUpdateDialog(String currentVersion, AppUpdateInfo latest) async {
+  Future<void> _showUpdateDialog(
+    String currentVersion,
+    AppUpdateInfo latest,
+  ) async {
     var downloading = false;
     var progress = 0.0;
     String? errorMessage;
@@ -1463,26 +1511,41 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Versi saat ini: $currentVersion\nVersi terbaru: ${latest.version}'),
+                Text(
+                  'Versi saat ini: $currentVersion\nVersi terbaru: ${latest.version}',
+                ),
                 if (latest.releaseNotes.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   Text(latest.releaseNotes),
                 ],
                 if (downloading) ...[
                   const SizedBox(height: 18),
-                  LinearProgressIndicator(value: progress == 0 ? null : progress),
+                  LinearProgressIndicator(
+                    value: progress == 0 ? null : progress,
+                  ),
                   const SizedBox(height: 8),
-                  Text(progress == 0 ? 'Menyiapkan unduhan...' : 'Mengunduh $percent%'),
+                  Text(
+                    progress == 0
+                        ? 'Menyiapkan unduhan...'
+                        : 'Mengunduh $percent%',
+                  ),
                 ],
                 if (errorMessage != null) ...[
                   const SizedBox(height: 12),
-                  Text(errorMessage!, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                  Text(
+                    errorMessage!,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                  ),
                 ],
               ],
             ),
             actions: [
               TextButton(
-                onPressed: downloading ? null : () => Navigator.pop(dialogContext),
+                onPressed: downloading
+                    ? null
+                    : () => Navigator.pop(dialogContext),
                 child: const Text('Nanti'),
               ),
               FilledButton.icon(
@@ -1504,16 +1567,19 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                               });
                             },
                           );
-                          if (dialogContext.mounted) Navigator.pop(dialogContext);
+                          if (dialogContext.mounted)
+                            Navigator.pop(dialogContext);
                           await AppUpdateService.instance.installApk(path);
                           Future<void>.delayed(const Duration(seconds: 45), () {
-                            return AppUpdateService.instance.cleanupDownloadedApks();
+                            return AppUpdateService.instance
+                                .cleanupDownloadedApks();
                           });
                         } catch (error) {
                           if (dialogContext.mounted) {
                             setDialogState(() {
                               downloading = false;
-                              errorMessage = 'Download atau instalasi gagal: $error';
+                              errorMessage =
+                                  'Download atau instalasi gagal: $error';
                             });
                           }
                         }
@@ -1758,10 +1824,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
           ..._savings.map(
             (goal) => Padding(
               padding: const EdgeInsets.only(bottom: 10),
-              child: _SavingsOverviewCard(
-                goal: goal,
-                onTap: _openSavings,
-              ),
+              child: _SavingsOverviewCard(goal: goal, onTap: _openSavings),
             ),
           ),
       ],
@@ -1951,8 +2014,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
             Expanded(
               child: Text(
                 'Saldo akun/dompet (di luar Uang Saku)',
-                style: Theme.of(context).textTheme.titleMedium
-                    ?.copyWith(fontWeight: FontWeight.w800),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w800),
               ),
             ),
             TextButton.icon(
@@ -2165,6 +2229,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
               entry.date.year == today.year && entry.date.month == today.month,
         )
         .fold(0.0, (sum, entry) => sum + entry.amount);
+    final roundedTodayExpense = roundMoney(thisMonth);
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0.92, end: 1),
       duration: const Duration(milliseconds: 500),
@@ -2247,7 +2312,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                   ),
                 ),
                 Text(
-                  _formatCurrency(_totalExpense),
+                  _formatCurrency(roundedTodayExpense),
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 12,
@@ -2565,8 +2630,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
                   Text(
                     subtitle,
                     style: TextStyle(
-                      color: Theme.of(context).colorScheme.onSurface
-                          .withValues(alpha: 0.58),
+                      color: Theme.of(
+                        context,
+                      ).colorScheme.onSurface.withValues(alpha: 0.58),
                       fontSize: 12,
                     ),
                   ),
@@ -2599,15 +2665,17 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
               color: Theme.of(context).colorScheme.surface,
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color: Theme.of(context).colorScheme.outline
-                    .withValues(alpha: 0.65),
+                color: Theme.of(
+                  context,
+                ).colorScheme.outline.withValues(alpha: 0.65),
               ),
             ),
             child: Text(
               'Belum ada catatan di bagian ini.',
               style: TextStyle(
-                color: Theme.of(context).colorScheme.onSurface
-                    .withValues(alpha: 0.58),
+                color: Theme.of(
+                  context,
+                ).colorScheme.onSurface.withValues(alpha: 0.58),
                 fontSize: 13,
               ),
             ),
@@ -2939,10 +3007,26 @@ class _SavingsOverviewCard extends StatelessWidget {
                   width: 58,
                   height: 58,
                   child: file != null && file.existsSync()
-                      ? Image.file(file, fit: BoxFit.cover)
+                      ? Image.file(
+                          file,
+                          fit: BoxFit.cover,
+                          cacheWidth: 180,
+                          cacheHeight: 180,
+                          errorBuilder: (context, error, stackTrace) =>
+                              ColoredBox(
+                                color: colors.primary.withValues(alpha: 0.1),
+                                child: Icon(
+                                  Icons.broken_image_outlined,
+                                  color: colors.primary,
+                                ),
+                              ),
+                        )
                       : ColoredBox(
                           color: colors.primary.withValues(alpha: 0.1),
-                          child: Icon(Icons.savings_outlined, color: colors.primary),
+                          child: Icon(
+                            Icons.savings_outlined,
+                            color: colors.primary,
+                          ),
                         ),
                 ),
               ),
@@ -2951,7 +3035,10 @@ class _SavingsOverviewCard extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(goal.name, style: const TextStyle(fontWeight: FontWeight.w900)),
+                    Text(
+                      goal.name,
+                      style: const TextStyle(fontWeight: FontWeight.w900),
+                    ),
                     const SizedBox(height: 5),
                     LinearProgressIndicator(
                       value: goal.progress,
@@ -3942,6 +4029,8 @@ class _PhotoAttachment extends StatelessWidget {
                   child: Image.file(
                     File(path!),
                     fit: BoxFit.cover,
+                    cacheWidth: 1200,
+                    cacheHeight: 500,
                     errorBuilder: (context, error, stackTrace) => Container(
                       color: colors.surfaceContainerHighest,
                       child: const Icon(Icons.broken_image_outlined),
@@ -4533,10 +4622,9 @@ class _CalculatorSheetState extends State<CalculatorSheet> {
 
 double? _calculateExpression(String expression) {
   if (expression.isEmpty) return null;
-  final tokens = RegExp(r'\d+(?:\.\d+)?|[+\-×÷]')
-      .allMatches(expression)
-      .map((match) => match.group(0)!)
-      .toList();
+  final tokens = RegExp(
+    r'\d+(?:\.\d+)?|[+\-×÷]',
+  ).allMatches(expression).map((match) => match.group(0)!).toList();
   if (tokens.isEmpty ||
       tokens.first.length == 1 && '+−×÷'.contains(tokens.first))
     return null;

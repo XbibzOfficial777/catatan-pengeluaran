@@ -1,3 +1,5 @@
+import 'json_helpers.dart';
+
 enum ReminderFrequency { daily, weekly }
 
 class ReminderSchedule {
@@ -54,29 +56,21 @@ class ReminderSchedule {
   };
 
   factory ReminderSchedule.fromJson(Map<String, dynamic> json) {
-    final rawFrequency =
-        json['frequency'] as String? ?? ReminderFrequency.daily.name;
-    final rawWeekdays = json['weekdays'];
     return ReminderSchedule(
-      id:
-          (json['id'] as num?)?.toInt() ??
-          DateTime.now().millisecondsSinceEpoch,
-      title: json['title'] as String? ?? 'Pengingat',
-      body: json['body'] as String? ?? 'Saatnya melihat catatanmu.',
-      hour: ((json['hour'] as num?)?.toInt() ?? 8).clamp(0, 23),
-      minute: ((json['minute'] as num?)?.toInt() ?? 0).clamp(0, 59),
-      frequency: ReminderFrequency.values.firstWhere(
-        (item) => item.name == rawFrequency,
-        orElse: () => ReminderFrequency.daily,
+      id: readInt(json['id'], fallback: DateTime.now().millisecondsSinceEpoch),
+      title: readString(json['title'], fallback: 'Pengingat'),
+      body: readString(json['body'], fallback: 'Saatnya melihat catatanmu.'),
+      hour: clampInt(readInt(json['hour'], fallback: 8), 0, 23),
+      minute: clampInt(readInt(json['minute']), 0, 59),
+      frequency: readEnum(
+        ReminderFrequency.values,
+        json['frequency'],
+        ReminderFrequency.daily,
       ),
-      weekdays: rawWeekdays is List
-          ? rawWeekdays
-                .whereType<num>()
-                .map((item) => item.toInt())
-                .where((item) => item >= 1 && item <= 7)
-                .toList()
-          : const <int>[],
-      enabled: json['enabled'] as bool? ?? true,
+      weekdays: readIntList(
+        json['weekdays'],
+      ).where((item) => item >= 1 && item <= 7).toList(growable: false),
+      enabled: readBool(json['enabled'], fallback: true),
     );
   }
 }

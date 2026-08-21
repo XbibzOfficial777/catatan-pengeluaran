@@ -1,3 +1,5 @@
+import 'json_helpers.dart';
+
 enum TaskPriority { low, medium, high }
 
 class TaskItem {
@@ -51,25 +53,21 @@ class TaskItem {
   }
 
   factory TaskItem.fromJson(Map<String, dynamic> json) {
-    final priorityName =
-        json['priority'] as String? ?? TaskPriority.medium.name;
-    final priority = TaskPriority.values.firstWhere(
-      (value) => value.name == priorityName,
-      orElse: () => TaskPriority.medium,
-    );
-
     return TaskItem(
-      id: json['id'] as String,
-      title: json['title'] as String? ?? '',
-      note: json['note'] as String? ?? '',
-      dueDate: json['dueDate'] == null
-          ? null
-          : DateTime.tryParse(json['dueDate'] as String),
-      priority: priority,
-      isCompleted: json['isCompleted'] as bool? ?? false,
-      createdAt:
-          DateTime.tryParse(json['createdAt'] as String? ?? '') ??
-          DateTime.now(),
+      id: readString(
+        json['id'],
+        fallback: DateTime.now().microsecondsSinceEpoch.toString(),
+      ),
+      title: readString(json['title']),
+      note: readString(json['note']),
+      dueDate: readNullableDate(json['dueDate']),
+      priority: readEnum(
+        TaskPriority.values,
+        json['priority'],
+        TaskPriority.medium,
+      ),
+      isCompleted: readBool(json['isCompleted']),
+      createdAt: readDate(json['createdAt']),
     );
   }
 }

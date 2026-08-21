@@ -28,7 +28,15 @@ class BackupIntegrityService {
 
   Future<List<int>> _deviceKey() async {
     final stored = await _secureStorage.read(key: _keyName);
-    if (stored != null && stored.isNotEmpty) return base64Url.decode(stored);
+    if (stored != null && stored.isNotEmpty) {
+      try {
+        final decoded = base64Url.decode(stored);
+        if (decoded.length == 32) return decoded;
+      } on FormatException {
+        // Regenerate a valid key when secure storage contains malformed data.
+      }
+      await _secureStorage.delete(key: _keyName);
+    }
     final random = math.Random.secure();
     final bytes = List<int>.generate(32, (_) => random.nextInt(256));
     await _secureStorage.write(key: _keyName, value: base64UrlEncode(bytes));

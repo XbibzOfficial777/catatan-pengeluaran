@@ -1,3 +1,5 @@
+import 'json_helpers.dart';
+
 enum ExpenseCategory {
   food,
   transport,
@@ -80,27 +82,31 @@ class ExpenseEntry {
   };
 
   factory ExpenseEntry.fromJson(Map<String, dynamic> json) {
-    final categoryName =
-        json['category'] as String? ?? ExpenseCategory.other.name;
+    final categoryName = readString(
+      json['category'],
+      fallback: ExpenseCategory.other.name,
+    );
     return ExpenseEntry(
-      id: json['id'] as String,
-      title: json['title'] as String? ?? 'Pengeluaran',
-      amount: (json['amount'] as num?)?.toDouble() ?? 0,
-      category: ExpenseCategory.values.firstWhere(
-        (value) => value.name == categoryName,
-        orElse: () => ExpenseCategory.other,
+      id: readString(
+        json['id'],
+        fallback: DateTime.now().microsecondsSinceEpoch.toString(),
       ),
-      date: DateTime.tryParse(json['date'] as String? ?? '') ?? DateTime.now(),
-      note: json['note'] as String? ?? '',
-      imagePath: json['imagePath'] as String?,
-      accountId: json['accountId'] as String?,
-      recurringId: json['recurringId'] as String?,
+      title: readString(json['title'], fallback: 'Pengeluaran'),
+      amount: roundMoney(readDouble(json['amount'])),
+      category: readEnum(
+        ExpenseCategory.values,
+        categoryName,
+        ExpenseCategory.other,
+      ),
+      date: readDate(json['date']),
+      note: readString(json['note']),
+      imagePath: readNullableString(json['imagePath']),
+      accountId: readNullableString(json['accountId']),
+      recurringId: readNullableString(json['recurringId']),
       isSettled: json.containsKey('isSettled')
-          ? json['isSettled'] as bool? ?? false
+          ? readBool(json['isSettled'])
           : true,
-      createdAt:
-          DateTime.tryParse(json['createdAt'] as String? ?? '') ??
-          DateTime.now(),
+      createdAt: readDate(json['createdAt']),
     );
   }
 }
@@ -181,25 +187,23 @@ class DebtEntry {
   };
 
   factory DebtEntry.fromJson(Map<String, dynamic> json) {
-    final kindName = json['kind'] as String? ?? DebtKind.payable.name;
+    final kindName = readString(json['kind'], fallback: DebtKind.payable.name);
     return DebtEntry(
-      id: json['id'] as String,
-      person: json['person'] as String? ?? 'Kontak',
-      amount: (json['amount'] as num?)?.toDouble() ?? 0,
-      kind: DebtKind.values.firstWhere(
-        (value) => value.name == kindName,
-        orElse: () => DebtKind.payable,
+      id: readString(
+        json['id'],
+        fallback: DateTime.now().microsecondsSinceEpoch.toString(),
       ),
-      date: DateTime.tryParse(json['date'] as String? ?? '') ?? DateTime.now(),
-      dueDate: DateTime.tryParse(json['dueDate'] as String? ?? ''),
-      note: json['note'] as String? ?? '',
-      imagePath: json['imagePath'] as String?,
-      contactId: json['contactId'] as String?,
-      contactPhone: json['contactPhone'] as String?,
-      isSettled: json['isSettled'] as bool? ?? false,
-      createdAt:
-          DateTime.tryParse(json['createdAt'] as String? ?? '') ??
-          DateTime.now(),
+      person: readString(json['person'], fallback: 'Kontak'),
+      amount: roundMoney(readDouble(json['amount'])),
+      kind: readEnum(DebtKind.values, kindName, DebtKind.payable),
+      date: readDate(json['date']),
+      dueDate: readNullableDate(json['dueDate']),
+      note: readString(json['note']),
+      imagePath: readNullableString(json['imagePath']),
+      contactId: readNullableString(json['contactId']),
+      contactPhone: readNullableString(json['contactPhone']),
+      isSettled: readBool(json['isSettled']),
+      createdAt: readDate(json['createdAt']),
     );
   }
 }
