@@ -1,7 +1,7 @@
 {
-  "version": "1.3.6",
-  "versionCode": 15,
-  "releaseNotes": "Changelog GitHub, onboarding instalasi pertama, menu tekan lama untuk edit/hapus/lunas, perbaikan hapus Tabungan, dan preview lampiran gambar dari riwayat.",
+  "version": "1.3.7",
+  "versionCode": 16,
+  "releaseNotes": "Perbaikan updater untuk perangkat lama: raw GitHub menjadi sumber metadata utama, Contents API menjadi fallback, User-Agent resmi, validasi metadata, dan informasi versi server saat tidak ada update.",
   "universalApkUrl": "https://github.com/XbibzOfficial777/catatan-pengeluaran/releases/latest/download/Catatan-Pengeluaran-universal.apk",
   "arm64ApkUrl": "https://github.com/XbibzOfficial777/catatan-pengeluaran/releases/latest/download/Catatan-Pengeluaran-arm64-v8a.apk"
 }

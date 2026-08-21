@@ -2,6 +2,14 @@
 
 Semua perubahan penting pada **Catatan Pengeluaran** dicatat di dokumen ini.
 
+## [1.3.7] - 2026-08-21
+
+### Fixed
+
+- Updater memakai raw GitHub sebagai sumber metadata utama sehingga tidak bergantung pada rate limit Contents API yang dapat mengembalikan HTTP 403.
+- Contents API tetap tersedia sebagai fallback, dengan User-Agent resmi dan validasi metadata yang lebih ketat.
+- Pesan ketika tidak ada update sekarang menampilkan versi/build lokal serta versi/build server untuk membantu diagnosis.
+
 ## [1.3.6] - 2026-08-21
 
 ### Added

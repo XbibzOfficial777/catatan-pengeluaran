@@ -1679,7 +1679,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       if (!hasUpdate) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Aplikasi sudah versi terbaru (${current.version}).'),
+            content: Text(
+              'Aplikasi sudah versi terbaru (${current.version}, build $currentCode). Server: ${latest.version}, build ${latest.versionCode}.',
+            ),
           ),
         );
         return;

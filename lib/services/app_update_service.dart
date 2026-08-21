@@ -83,27 +83,62 @@ class AppUpdateService {
   }
 
   Future<AppUpdateInfo> checkLatest() async {
-    try {
-      final apiText = await _getText(latestJsonApiUrl);
-      final apiDecoded = jsonDecode(apiText);
-      if (apiDecoded is Map && apiDecoded['content'] is String) {
-        final encoded = (apiDecoded['content'] as String).replaceAll('\n', '');
-        final metadataText = utf8.decode(base64.decode(encoded));
-        return _parseMetadata(metadataText);
-      }
-      if (apiDecoded is Map) {
-        return AppUpdateInfo.fromJson(Map<String, dynamic>.from(apiDecoded));
-      }
-    } catch (_) {
-      // Fall back to raw GitHub when the Contents API is unavailable.
-    }
+    final cacheBust = DateTime.now().millisecondsSinceEpoch.toString();
+    final rawUrl = Uri.parse(
+      latestJsonUrl,
+    ).replace(queryParameters: <String, String>{'cacheBust': cacheBust});
+    Object? lastError;
 
-    final cacheBustedUrl = Uri.parse(latestJsonUrl).replace(
-      queryParameters: <String, String>{
-        'cacheBust': DateTime.now().millisecondsSinceEpoch.toString(),
-      },
+    // Raw GitHub menjadi sumber utama karena endpoint Contents API memiliki
+    // rate limit publik dan dapat mengembalikan HTTP 403 pada perangkat user.
+    final sources = <({String url, bool contentsApi})>[
+      (url: rawUrl.toString(), contentsApi: false),
+      (url: latestJsonApiUrl, contentsApi: true),
+    ];
+    for (final source in sources) {
+      try {
+        final text = await _getText(
+          source.url,
+          accept: source.contentsApi
+              ? 'application/vnd.github+json'
+              : 'text/plain',
+        );
+        final metadataText = source.contentsApi
+            ? _decodeContentsApi(text)
+            : text;
+        final info = _parseMetadata(metadataText);
+        if (info.versionCode <= 0 || info.version == '0.0.0') {
+          throw const FormatException(
+            'Metadata update tidak memiliki versi valid.',
+          );
+        }
+        if (info.universalApkUrl.isEmpty && info.arm64ApkUrl.isEmpty) {
+          throw const FormatException(
+            'Metadata update tidak memiliki URL APK.',
+          );
+        }
+        return info;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError ??
+        const HttpException('Semua sumber metadata update gagal.');
+  }
+
+  String _decodeContentsApi(String text) {
+    final decoded = jsonDecode(text);
+    if (decoded is! Map) {
+      throw const FormatException('Respons Contents API tidak valid.');
+    }
+    final content = decoded['content'];
+    if (content is String && content.trim().isNotEmpty) {
+      final encoded = content.replaceAll(RegExp(r'\s+'), '');
+      return utf8.decode(base64.decode(encoded));
+    }
+    throw const FormatException(
+      'Contents API tidak mengandung metadata update.',
     );
-    return _parseMetadata(await _getText(cacheBustedUrl.toString()));
   }
 
   AppUpdateInfo _parseMetadata(String text) {
@@ -271,6 +306,10 @@ class AppUpdateService {
       request.followRedirects = true;
       request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
       request.headers.set(HttpHeaders.acceptHeader, accept);
+      request.headers.set(
+        HttpHeaders.userAgentHeader,
+        'CatatanPengeluaran-Updater/1.3.7 (+https://github.com/XbibzOfficial777/catatan-pengeluaran)',
+      );
       final response = await request.close().timeout(
         const Duration(seconds: 15),
       );

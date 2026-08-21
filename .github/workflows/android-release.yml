@@ -7,9 +7,9 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: 'Tag release tujuan, misalnya v1.3.6'
+        description: 'Tag release tujuan, misalnya v1.3.7'
         required: true
-        default: 'v1.3.6'
+        default: 'v1.3.7'
         type: string
 
 permissions:
