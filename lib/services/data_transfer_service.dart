@@ -47,6 +47,9 @@ class RestorePayload {
     this.budgets = const <BudgetLimit>[],
     this.recurring = const <RecurringExpense>[],
     this.savingsGoals = const <SavingsGoal>[],
+    this.splitBills = const <SplitBill>[],
+    this.reconciliationSnapshots = const <ReconciliationSnapshot>[],
+    this.merchantCategoryRules = const <MerchantCategoryRule>[],
     this.privacyMode = false,
   });
 
@@ -59,6 +62,9 @@ class RestorePayload {
   final List<BudgetLimit> budgets;
   final List<RecurringExpense> recurring;
   final List<SavingsGoal> savingsGoals;
+  final List<SplitBill> splitBills;
+  final List<ReconciliationSnapshot> reconciliationSnapshots;
+  final List<MerchantCategoryRule> merchantCategoryRules;
   final bool privacyMode;
 }
 
@@ -75,7 +81,9 @@ class DataTransferService {
       type: FileType.any,
       withData: false,
     );
-    if (picked == null || picked.files.isEmpty || picked.files.first.path == null) {
+    if (picked == null ||
+        picked.files.isEmpty ||
+        picked.files.first.path == null) {
       return null;
     }
     return restoreFromFile(picked.files.first.path!);
@@ -212,11 +220,16 @@ class DataTransferService {
     }
     final savingsGoals = <SavingsGoal>[];
     for (final item
-        in root.findElements('savingsGoals').firstOrNull?.findElements('savingsGoal') ??
+        in root
+                .findElements('savingsGoals')
+                .firstOrNull
+                ?.findElements('savingsGoal') ??
             const <XmlElement>[]) {
       final json = _integrity.parseEntry(item);
       final photoPath = json['photoPath'] as String?;
-      if (photoPath != null && photoPath.isNotEmpty && photoPath.startsWith('photos/')) {
+      if (photoPath != null &&
+          photoPath.isNotEmpty &&
+          photoPath.startsWith('photos/')) {
         final restored = await _restorePhoto(
           {...json, 'backupPhoto': photoPath},
           archive,
@@ -230,6 +243,37 @@ class DataTransferService {
         json['photoPath'] = null;
         savingsGoals.add(SavingsGoal.fromJson(json));
       }
+    }
+    final splitBills = <SplitBill>[];
+    for (final item
+        in root
+                .findElements('splitBills')
+                .firstOrNull
+                ?.findElements('splitBill') ??
+            const <XmlElement>[]) {
+      splitBills.add(SplitBill.fromJson(_integrity.parseEntry(item)));
+    }
+    final reconciliationSnapshots = <ReconciliationSnapshot>[];
+    for (final item
+        in root
+                .findElements('reconciliationSnapshots')
+                .firstOrNull
+                ?.findElements('reconciliationSnapshot') ??
+            const <XmlElement>[]) {
+      reconciliationSnapshots.add(
+        ReconciliationSnapshot.fromJson(_integrity.parseEntry(item)),
+      );
+    }
+    final merchantCategoryRules = <MerchantCategoryRule>[];
+    for (final item
+        in root
+                .findElements('merchantCategoryRules')
+                .firstOrNull
+                ?.findElements('merchantCategoryRule') ??
+            const <XmlElement>[]) {
+      merchantCategoryRules.add(
+        MerchantCategoryRule.fromJson(_integrity.parseEntry(item)),
+      );
     }
     final privacyMode =
         (root.findElements('privacyMode').firstOrNull?.innerText ?? 'false')
@@ -246,6 +290,9 @@ class DataTransferService {
       budgets: budgets,
       recurring: recurring,
       savingsGoals: savingsGoals,
+      splitBills: splitBills,
+      reconciliationSnapshots: reconciliationSnapshots,
+      merchantCategoryRules: merchantCategoryRules,
       privacyMode: privacyMode,
     );
   }
@@ -254,17 +301,22 @@ class DataTransferService {
     required List<ExpenseEntry> expenses,
     required List<DebtEntry> debts,
     double pocketMoney = 0,
+    List<SplitBill> splitBills = const <SplitBill>[],
   }) async {
     final workbook = Excel.createExcel();
     workbook.rename('Sheet1', 'Overview');
     final overview = workbook['Overview'];
     final transactions = workbook['Transactions'];
     final debtsSheet = workbook['Hutang & Piutang'];
+    final splitBillSheet = workbook['Split Bill'];
+    final businessSheet = workbook['Bisnis & Pajak'];
     workbook.setDefaultSheet('Overview');
 
     _configureOverview(overview, expenses, debts, pocketMoney);
     _configureTransactions(transactions, expenses, debts);
     _configureDebts(debtsSheet, debts);
+    _configureSplitBills(splitBillSheet, splitBills);
+    _configureBusinessTax(businessSheet, expenses);
 
     final directory = await getTemporaryDirectory();
     final stamp = _stamp(DateTime.now());
@@ -425,6 +477,11 @@ class DataTransferService {
       'Nomor Kontak',
       'Catatan',
       'Lampiran',
+      'Merchant',
+      'Bisnis',
+      'Pajak Deductible',
+      'Pajak (Rp)',
+      'Split Bill ID',
       'Dibuat Pada',
     ];
     final widths = <int, double>{
@@ -440,7 +497,12 @@ class DataTransferService {
       9: 18,
       10: 30,
       11: 12,
-      12: 20,
+      12: 24,
+      13: 12,
+      14: 16,
+      15: 16,
+      16: 20,
+      17: 20,
     };
     _setWidths(sheet, widths);
     _put(sheet, 0, 0, TextCellValue('LAPORAN DETAIL TRANSAKSI'), _titleStyle());
@@ -485,6 +547,11 @@ class DataTransferService {
         entry.note,
         entry.imagePath != null,
         entry.createdAt,
+        entry.merchantName,
+        entry.isBusiness,
+        entry.taxDeductible,
+        entry.taxAmount,
+        entry.splitBillId ?? '',
       );
     }
     for (final entry in debts) {
@@ -513,6 +580,122 @@ class DataTransferService {
         0,
         4,
         TextCellValue('Belum ada data transaksi.'),
+        _bodyStyle(),
+      );
+  }
+
+  void _configureSplitBills(Sheet sheet, List<SplitBill> bills) {
+    _hideGrid(sheet);
+    final headers = [
+      'No',
+      'Judul',
+      'Total (Rp)',
+      'Tanggal',
+      'Peserta',
+      'Status',
+      'Catatan',
+    ];
+    _setWidths(sheet, {0: 7, 1: 28, 2: 18, 3: 14, 4: 32, 5: 16, 6: 32});
+    _put(sheet, 0, 0, TextCellValue('SPLIT BILL'), _titleStyle());
+    sheet.merge(
+      CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 0),
+      CellIndex.indexByColumnRow(columnIndex: headers.length - 1, rowIndex: 0),
+    );
+    for (var col = 0; col < headers.length; col++) {
+      _put(sheet, col, 2, TextCellValue(headers[col]), _headerStyle());
+    }
+    for (var index = 0; index < bills.length; index++) {
+      final bill = bills[index];
+      final values = <CellValue>[
+        IntCellValue(index + 1),
+        TextCellValue(bill.title),
+        DoubleCellValue(bill.totalAmount),
+        DateCellValue.fromDateTime(bill.date),
+        TextCellValue(
+          bill.participants
+              .map((item) => '${item.name}: ${item.amount}')
+              .join('; '),
+        ),
+        TextCellValue(bill.isBalanced ? 'Seimbang' : 'Belum lengkap'),
+        TextCellValue(bill.note),
+      ];
+      for (var col = 0; col < values.length; col++) {
+        _put(
+          sheet,
+          col,
+          index + 3,
+          values[col],
+          col == 2 ? _currencyStyle(false) : _bodyStyle(),
+        );
+      }
+    }
+    if (bills.isEmpty)
+      _put(sheet, 0, 3, TextCellValue('Belum ada split bill.'), _bodyStyle());
+  }
+
+  void _configureBusinessTax(Sheet sheet, List<ExpenseEntry> expenses) {
+    _hideGrid(sheet);
+    final business = expenses.where((item) => item.isBusiness).toList();
+    final deductible = expenses.where((item) => item.taxDeductible).toList();
+    final headers = [
+      'No',
+      'Judul',
+      'Merchant',
+      'Kategori',
+      'Nominal (Rp)',
+      'Pajak (Rp)',
+      'Tanggal',
+      'Catatan',
+    ];
+    _setWidths(sheet, {0: 7, 1: 26, 2: 24, 3: 16, 4: 18, 5: 18, 6: 14, 7: 32});
+    _put(sheet, 0, 0, TextCellValue('LAPORAN BISNIS & PAJAK'), _titleStyle());
+    sheet.merge(
+      CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 0),
+      CellIndex.indexByColumnRow(columnIndex: headers.length - 1, rowIndex: 0),
+    );
+    _put(
+      sheet,
+      0,
+      1,
+      TextCellValue(
+        'Total bisnis: ${business.fold<double>(0, (sum, item) => sum + item.amount)} | Total pajak tercatat: ${deductible.fold<double>(0, (sum, item) => sum + item.taxAmount)}',
+      ),
+      _subtitleStyle(),
+    );
+    sheet.merge(
+      CellIndex.indexByColumnRow(columnIndex: 0, rowIndex: 1),
+      CellIndex.indexByColumnRow(columnIndex: headers.length - 1, rowIndex: 1),
+    );
+    for (var col = 0; col < headers.length; col++)
+      _put(sheet, col, 3, TextCellValue(headers[col]), _headerStyle());
+    for (var index = 0; index < business.length; index++) {
+      final item = business[index];
+      final values = <CellValue>[
+        IntCellValue(index + 1),
+        TextCellValue(item.title),
+        TextCellValue(item.merchantName),
+        TextCellValue(item.category.label),
+        DoubleCellValue(item.amount),
+        DoubleCellValue(item.taxDeductible ? item.taxAmount : 0),
+        DateCellValue.fromDateTime(item.date),
+        TextCellValue(item.note),
+      ];
+      for (var col = 0; col < values.length; col++) {
+        _put(
+          sheet,
+          col,
+          index + 4,
+          values[col],
+          col == 4 || col == 5 ? _currencyStyle(false) : _bodyStyle(),
+        );
+      }
+    }
+    if (business.isEmpty)
+      _put(
+        sheet,
+        0,
+        4,
+        TextCellValue('Belum ada transaksi bisnis.'),
         _bodyStyle(),
       );
   }
@@ -624,8 +807,13 @@ class DataTransferService {
     String contactId,
     String note,
     bool hasPhoto,
-    DateTime createdAt,
-  ) {
+    DateTime createdAt, [
+    String merchant = '',
+    bool isBusiness = false,
+    bool taxDeductible = false,
+    double taxAmount = 0,
+    String splitBillId = '',
+  ]) {
     final values = <CellValue>[
       IntCellValue(number),
       TextCellValue(type),
@@ -639,12 +827,19 @@ class DataTransferService {
       TextCellValue(phone),
       TextCellValue(note),
       TextCellValue(hasPhoto ? 'Ya' : 'Tidak'),
+      TextCellValue(merchant),
+      TextCellValue(isBusiness ? 'Ya' : 'Tidak'),
+      TextCellValue(taxDeductible ? 'Ya' : 'Tidak'),
+      DoubleCellValue(taxAmount),
+      TextCellValue(splitBillId),
       DateTimeCellValue.fromDateTime(createdAt),
     ];
     for (var col = 0; col < values.length; col++) {
-      final style = col == 6
+      final style = col == 6 || col == 16
           ? _currencyStyle(false)
-          : (col == 7 || col == 8 ? _dateStyle(false) : _bodyStyle());
+          : (col == 7 || col == 8 || col == 17
+                ? _dateStyle(false)
+                : _bodyStyle());
       _put(sheet, col, row, values[col], style);
     }
   }

@@ -62,6 +62,9 @@ class BackupIntegrityService {
     required List<XmlElement> budgets,
     required List<XmlElement> recurring,
     required List<XmlElement> savingsGoals,
+    required List<XmlElement> splitBills,
+    required List<XmlElement> reconciliationSnapshots,
+    required List<XmlElement> merchantCategoryRules,
     required bool privacyMode,
     required List<XmlElement> files,
   }) {
@@ -83,6 +86,15 @@ class BackupIntegrityService {
         XmlElement.tag('budgets', children: budgets),
         XmlElement.tag('recurringExpenses', children: recurring),
         XmlElement.tag('savingsGoals', children: savingsGoals),
+        XmlElement.tag('splitBills', children: splitBills),
+        XmlElement.tag(
+          'reconciliationSnapshots',
+          children: reconciliationSnapshots,
+        ),
+        XmlElement.tag(
+          'merchantCategoryRules',
+          children: merchantCategoryRules,
+        ),
         _textElement('privacyMode', privacyMode.toString()),
         XmlElement.tag('files', children: files),
       ],
@@ -96,14 +108,23 @@ class BackupIntegrityService {
         entry,
       ) {
         final value = entry.value;
-        final type = value is bool
+        final isNestedJson =
+            value is Map ||
+            (value is List && value.any((item) => item is Map || item is List));
+        final type = isNestedJson
+            ? 'json'
+            : value is bool
             ? 'bool'
             : value is num
             ? 'number'
             : value is List
             ? 'list'
             : 'string';
-        final text = value is List ? value.join(',') : value.toString();
+        final text = isNestedJson
+            ? jsonEncode(value)
+            : value is List
+            ? value.join(',')
+            : value.toString();
         return XmlElement.tag(
           'field',
           attributes: [
@@ -177,10 +198,19 @@ class BackupIntegrityService {
                     .split(',')
                     .map((item) => int.tryParse(item.trim()) ?? 0)
                     .toList(),
+        'json' => _decodeJsonValue(value),
         _ => value,
       };
     }
     return result;
+  }
+
+  dynamic _decodeJsonValue(String value) {
+    try {
+      return jsonDecode(value);
+    } catch (_) {
+      return null;
+    }
   }
 
   Map<String, String> parseFileHashes(XmlElement root) {

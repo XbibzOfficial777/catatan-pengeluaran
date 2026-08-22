@@ -337,3 +337,206 @@ class ExpenseFilter {
     maximum: clearMaximum ? null : maximum ?? this.maximum,
   );
 }
+
+class SplitParticipant {
+  const SplitParticipant({
+    required this.id,
+    required this.name,
+    required this.amount,
+    this.isPaid = false,
+  });
+
+  final String id;
+  final String name;
+  final double amount;
+  final bool isPaid;
+
+  SplitParticipant copyWith({String? name, double? amount, bool? isPaid}) =>
+      SplitParticipant(
+        id: id,
+        name: name ?? this.name,
+        amount: amount ?? this.amount,
+        isPaid: isPaid ?? this.isPaid,
+      );
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'name': name,
+    'amount': amount,
+    'isPaid': isPaid,
+  };
+
+  factory SplitParticipant.fromJson(Map<String, dynamic> json) =>
+      SplitParticipant(
+        id: readString(
+          json['id'],
+          fallback: DateTime.now().microsecondsSinceEpoch.toString(),
+        ),
+        name: readString(json['name'], fallback: 'Peserta'),
+        amount: roundMoney(readDouble(json['amount'])),
+        isPaid: readBool(json['isPaid']),
+      );
+}
+
+class SplitBill {
+  const SplitBill({
+    required this.id,
+    required this.title,
+    required this.totalAmount,
+    required this.date,
+    this.participants = const <SplitParticipant>[],
+    this.expenseIds = const <String>[],
+    this.note = '',
+    required this.createdAt,
+  });
+
+  final String id;
+  final String title;
+  final double totalAmount;
+  final DateTime date;
+  final List<SplitParticipant> participants;
+  final List<String> expenseIds;
+  final String note;
+  final DateTime createdAt;
+
+  double get assignedAmount => participants.fold<double>(
+    0,
+    (sum, participant) => sum + participant.amount,
+  );
+
+  double get remainingAmount => roundMoney(totalAmount - assignedAmount);
+
+  bool get isBalanced => remainingAmount.abs() < 0.01;
+
+  SplitBill copyWith({
+    String? title,
+    double? totalAmount,
+    DateTime? date,
+    List<SplitParticipant>? participants,
+    List<String>? expenseIds,
+    String? note,
+  }) => SplitBill(
+    id: id,
+    title: title ?? this.title,
+    totalAmount: totalAmount ?? this.totalAmount,
+    date: date ?? this.date,
+    participants: participants ?? this.participants,
+    expenseIds: expenseIds ?? this.expenseIds,
+    note: note ?? this.note,
+    createdAt: createdAt,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'title': title,
+    'totalAmount': totalAmount,
+    'date': date.toIso8601String(),
+    'participants': participants.map((item) => item.toJson()).toList(),
+    'expenseIds': expenseIds,
+    'note': note,
+    'createdAt': createdAt.toIso8601String(),
+  };
+
+  factory SplitBill.fromJson(Map<String, dynamic> json) => SplitBill(
+    id: readString(
+      json['id'],
+      fallback: DateTime.now().microsecondsSinceEpoch.toString(),
+    ),
+    title: readString(json['title'], fallback: 'Split bill'),
+    totalAmount: roundMoney(readDouble(json['totalAmount'])),
+    date: readDate(json['date']),
+    participants: readList<SplitParticipant>(
+      json['participants'],
+      SplitParticipant.fromJson,
+    ),
+    expenseIds: readStringList(json['expenseIds']),
+    note: readString(json['note']),
+    createdAt: readDate(json['createdAt']),
+  );
+}
+
+class ReconciliationSnapshot {
+  const ReconciliationSnapshot({
+    required this.id,
+    required this.accountId,
+    required this.checkedAt,
+    required this.expectedBalance,
+    required this.actualBalance,
+    this.note = '',
+    required this.createdAt,
+  });
+
+  final String id;
+  final String accountId;
+  final DateTime checkedAt;
+  final double expectedBalance;
+  final double actualBalance;
+  final String note;
+  final DateTime createdAt;
+
+  double get difference => roundMoney(actualBalance - expectedBalance);
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'accountId': accountId,
+    'checkedAt': checkedAt.toIso8601String(),
+    'expectedBalance': expectedBalance,
+    'actualBalance': actualBalance,
+    'note': note,
+    'createdAt': createdAt.toIso8601String(),
+  };
+
+  factory ReconciliationSnapshot.fromJson(Map<String, dynamic> json) =>
+      ReconciliationSnapshot(
+        id: readString(
+          json['id'],
+          fallback: DateTime.now().microsecondsSinceEpoch.toString(),
+        ),
+        accountId: readString(json['accountId']),
+        checkedAt: readDate(json['checkedAt']),
+        expectedBalance: roundMoney(readDouble(json['expectedBalance'])),
+        actualBalance: roundMoney(readDouble(json['actualBalance'])),
+        note: readString(json['note']),
+        createdAt: readDate(json['createdAt']),
+      );
+}
+
+class MerchantCategoryRule {
+  const MerchantCategoryRule({
+    required this.id,
+    required this.pattern,
+    required this.category,
+    this.enabled = true,
+    required this.createdAt,
+  });
+
+  final String id;
+  final String pattern;
+  final ExpenseCategory category;
+  final bool enabled;
+  final DateTime createdAt;
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'pattern': pattern,
+    'category': category.name,
+    'enabled': enabled,
+    'createdAt': createdAt.toIso8601String(),
+  };
+
+  factory MerchantCategoryRule.fromJson(Map<String, dynamic> json) =>
+      MerchantCategoryRule(
+        id: readString(
+          json['id'],
+          fallback: DateTime.now().microsecondsSinceEpoch.toString(),
+        ),
+        pattern: readString(json['pattern']),
+        category: readEnum(
+          ExpenseCategory.values,
+          json['category'],
+          ExpenseCategory.other,
+        ),
+        enabled: readBool(json['enabled'], fallback: true),
+        createdAt: readDate(json['createdAt']),
+      );
+}

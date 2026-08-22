@@ -13,6 +13,7 @@ class AppSettingsSheet extends StatefulWidget {
     required this.onClearCache,
     required this.selectedTheme,
     required this.onThemeSelected,
+    required this.onOpenFinanceFeatures,
     required this.updateScheduleMinutes,
     required this.onUpdateScheduleChanged,
   });
@@ -27,6 +28,7 @@ class AppSettingsSheet extends StatefulWidget {
   final Future<void> Function() onClearCache;
   final ThemeMode selectedTheme;
   final ValueChanged<ThemeMode> onThemeSelected;
+  final VoidCallback onOpenFinanceFeatures;
   final int updateScheduleMinutes;
   final Future<void> Function(int minutes) onUpdateScheduleChanged;
 
@@ -243,6 +245,20 @@ class _AppSettingsSheetState extends State<AppSettingsSheet> {
                   'Restore only valid .bibzcup backups.',
                 ),
                 onTap: widget.onRestore,
+              ),
+              const SizedBox(height: 20),
+              _SectionTitle(title: t('Fitur finansial', 'Finance features')),
+              _SettingsAction(
+                icon: Icons.auto_graph_rounded,
+                title: t('Pusat fitur keuangan', 'Finance feature center'),
+                subtitle: t(
+                  'Budget harian, OCR, split bill, rekonsiliasi, dan laporan bisnis.',
+                  'Daily budget, OCR, split bill, reconciliation, and business reports.',
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  widget.onOpenFinanceFeatures();
+                },
               ),
               const SizedBox(height: 20),
               _SectionTitle(title: t('Pembaruan aplikasi', 'App updates')),

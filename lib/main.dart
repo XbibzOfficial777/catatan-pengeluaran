@@ -39,6 +39,7 @@ import 'widgets/analytics_sheet.dart';
 import 'widgets/expense_filter_dialog.dart';
 import 'widgets/savings_sheet.dart';
 import 'widgets/app_settings_sheet.dart';
+import 'widgets/finance_features_sheet.dart';
 import 'widgets/update_and_onboarding_dialogs.dart';
 
 import 'package:share_plus/share_plus.dart';
@@ -360,6 +361,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   List<BudgetLimit> _budgets = <BudgetLimit>[];
   List<RecurringExpense> _recurring = <RecurringExpense>[];
   List<SavingsGoal> _savings = <SavingsGoal>[];
+  List<SplitBill> _splitBills = <SplitBill>[];
+  List<ReconciliationSnapshot> _reconciliationSnapshots =
+      <ReconciliationSnapshot>[];
+  List<MerchantCategoryRule> _merchantCategoryRules = <MerchantCategoryRule>[];
   ExpenseFilter _expenseFilter = const ExpenseFilter();
   List<String> _dashboardImageUrls = const <String>[];
   bool _imageFeedLoading = false;
@@ -397,6 +402,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         await _checkForUpdates(silent: true);
       }
     });
+    ReminderService.instance.setActionHandler((payload, actionId) async {
+      if (actionId == 'quick_expense' && mounted) {
+        await _showExpenseForm();
+      }
+    });
     _loadData();
     _loadImageFeed();
     _refreshCacheInfo();
@@ -419,6 +429,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     final budgets = await _storage.loadBudgets();
     final recurring = await _storage.loadRecurringExpenses();
     final savings = await _storage.loadSavingsGoals();
+    final splitBills = await _storage.loadSplitBills();
+    final reconciliationSnapshots = await _storage
+        .loadReconciliationSnapshots();
+    final merchantCategoryRules = await _storage.loadMerchantCategoryRules();
     final privacy = await _storage.loadPrivacyMode();
     final languageCode = await _storage.loadLanguage();
     final storageReport = _storage.consumeCorruptionReport();
@@ -456,6 +470,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       _budgets = budgets;
       _recurring = recurring;
       _savings = savings;
+      _splitBills = splitBills;
+      _reconciliationSnapshots = reconciliationSnapshots;
+      _merchantCategoryRules = merchantCategoryRules;
       _privacyEnabled = privacy;
       PrivacyMask.enabled = privacy;
       _languageCode = languageCode == 'en' ? 'en' : 'id';
@@ -701,6 +718,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   Future<void> _saveBudgets() => _storage.saveBudgets(_budgets);
   Future<void> _saveRecurring() => _storage.saveRecurringExpenses(_recurring);
   Future<void> _saveSavings() => _storage.saveSavingsGoals(_savings);
+  Future<void> _saveSplitBills() => _storage.saveSplitBills(_splitBills);
+  Future<void> _saveReconciliationSnapshots() =>
+      _storage.saveReconciliationSnapshots(_reconciliationSnapshots);
+  Future<void> _saveMerchantCategoryRules() =>
+      _storage.saveMerchantCategoryRules(_merchantCategoryRules);
 
   void _toggleExpenseSelection(String id) {
     setState(() {
@@ -1091,6 +1113,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         entry: entry,
         imageService: _imageService,
         accounts: _accounts,
+        categoryRules: _merchantCategoryRules,
       ),
     );
     if (result == null || !mounted) return;
@@ -1208,13 +1231,10 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
   }
 
   Future<void> _showEntryActions(Object entry) async {
-    final isExpense = entry is ExpenseEntry;
-    final isSettled = isExpense
-        ? (entry as ExpenseEntry).isSettled
-        : (entry as DebtEntry).isSettled;
-    final title = isExpense
-        ? (entry as ExpenseEntry).title
-        : (entry as DebtEntry).person;
+    final expenseEntry = entry is ExpenseEntry ? entry : null;
+    final isExpense = expenseEntry != null;
+    final isSettled = expenseEntry?.isSettled ?? (entry as DebtEntry).isSettled;
+    final title = expenseEntry?.title ?? (entry as DebtEntry).person;
     final action = await showModalBottomSheet<String>(
       context: context,
       showDragHandle: true,
@@ -1329,6 +1349,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         budgets: _budgets,
         recurring: _recurring,
         savingsGoals: _savings,
+        splitBills: _splitBills,
+        reconciliationSnapshots: _reconciliationSnapshots,
+        merchantCategoryRules: _merchantCategoryRules,
         privacyMode: _privacyEnabled,
       );
       if (!mounted) return;
@@ -1360,6 +1383,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         budgets: _budgets,
         recurring: _recurring,
         savingsGoals: _savings,
+        splitBills: _splitBills,
+        reconciliationSnapshots: _reconciliationSnapshots,
+        merchantCategoryRules: _merchantCategoryRules,
         privacyMode: _privacyEnabled,
       );
       if (!mounted) return;
@@ -1474,6 +1500,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
             accountIdMap,
           );
           _savings = [...restored.savingsGoals];
+          _splitBills = [...restored.splitBills];
+          _reconciliationSnapshots = [...restored.reconciliationSnapshots];
+          _merchantCategoryRules = [...restored.merchantCategoryRules];
           _privacyEnabled = restored.privacyMode;
           PrivacyMask.enabled = _privacyEnabled;
         } else {
@@ -1509,6 +1538,31 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
             }
             _savings = savings.values.toList();
           }
+          if (restored.splitBills.isNotEmpty) {
+            final splitBills = {for (final item in _splitBills) item.id: item};
+            for (final item in restored.splitBills) {
+              splitBills[item.id] = item;
+            }
+            _splitBills = splitBills.values.toList();
+          }
+          if (restored.reconciliationSnapshots.isNotEmpty) {
+            final snapshots = {
+              for (final item in _reconciliationSnapshots) item.id: item,
+            };
+            for (final item in restored.reconciliationSnapshots) {
+              snapshots[item.id] = item;
+            }
+            _reconciliationSnapshots = snapshots.values.toList();
+          }
+          if (restored.merchantCategoryRules.isNotEmpty) {
+            final rules = {
+              for (final item in _merchantCategoryRules) item.id: item,
+            };
+            for (final item in restored.merchantCategoryRules) {
+              rules[item.id] = item;
+            }
+            _merchantCategoryRules = rules.values.toList();
+          }
           if (restored.privacyMode) {
             _privacyEnabled = true;
             PrivacyMask.enabled = true;
@@ -1525,6 +1579,9 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
       await _saveBudgets();
       await _saveRecurring();
       await _saveSavings();
+      await _saveSplitBills();
+      await _saveReconciliationSnapshots();
+      await _saveMerchantCategoryRules();
       await _storage.savePrivacyMode(_privacyEnabled);
       try {
         await ReminderService.instance.syncAll(
@@ -1559,6 +1616,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         expenses: _expenses,
         debts: _debts,
         pocketMoney: _pocketMoney,
+        splitBills: _splitBills,
       );
       await SharePlus.instance.share(
         ShareParams(
@@ -1636,6 +1694,63 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
     );
   }
 
+  Future<void> _openFinanceFeatures() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => FinanceFeaturesSheet(
+        expenses: _expenses,
+        budgets: _budgets,
+        accounts: _accounts,
+        savings: _savings,
+        recurring: _recurring,
+        splitBills: _splitBills,
+        reconciliationSnapshots: _reconciliationSnapshots,
+        merchantRules: _merchantCategoryRules,
+        onQuickAdd: () => _showExpenseForm(),
+        onSaveSplitBill: (bill) async {
+          setState(() {
+            final index = _splitBills.indexWhere((item) => item.id == bill.id);
+            if (index == -1) {
+              _splitBills = [bill, ..._splitBills];
+            } else {
+              _splitBills[index] = bill;
+            }
+          });
+          await _saveSplitBills();
+        },
+        onSaveReconciliation: (snapshot) async {
+          setState(
+            () => _reconciliationSnapshots = [
+              snapshot,
+              ..._reconciliationSnapshots,
+            ],
+          );
+          await _saveReconciliationSnapshots();
+        },
+        onSaveMerchantRule: (rule) async {
+          setState(
+            () => _merchantCategoryRules = [rule, ..._merchantCategoryRules],
+          );
+          await _saveMerchantCategoryRules();
+        },
+        onDeleteMerchantRule: (id) async {
+          setState(
+            () => _merchantCategoryRules.removeWhere((item) => item.id == id),
+          );
+          await _saveMerchantCategoryRules();
+        },
+        onSaveRecurring: (recurring) async {
+          setState(() => _recurring = [recurring, ..._recurring]);
+          await _saveRecurring();
+        },
+        onOpenSavings: () => setState(() => _tab = FinanceTab.savings),
+      ),
+    );
+  }
+
   Future<void> _openSettings() async {
     await _refreshCacheInfo();
     if (!mounted) return;
@@ -1649,6 +1764,7 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
         cacheInfo: _cacheInfoLabel,
         selectedTheme: widget.themeMode,
         onThemeSelected: widget.onThemeModeChanged,
+        onOpenFinanceFeatures: _openFinanceFeatures,
         updateScheduleMinutes: _updateScheduleMinutes,
         onUpdateScheduleChanged: (minutes) =>
             _applyUpdateSchedule(minutes, persist: true),
@@ -1929,6 +2045,11 @@ class _FinanceHomePageState extends State<FinanceHomePage> {
             tooltip: 'Kalkulator',
             onPressed: _openCalculator,
             icon: const Icon(Icons.calculate_outlined),
+          ),
+          IconButton(
+            tooltip: 'Fitur keuangan',
+            onPressed: _openFinanceFeatures,
+            icon: const Icon(Icons.auto_graph_rounded),
           ),
           IconButton(
             tooltip: 'Data dan laporan',

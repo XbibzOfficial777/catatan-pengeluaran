@@ -2,6 +2,29 @@
 
 Semua perubahan penting pada **Catatan Pengeluaran** dicatat di dokumen ini.
 
+## [1.5.0] - 2026-08-22
+
+### Added
+
+- Transaksi cepat dari action notification pengingat.
+- OCR struk on-device pada Android/iOS dengan fallback input manual pada Web.
+- Merchant, teks struk, klasifikasi bisnis, penanda deductible pajak, dan nominal pajak pada pengeluaran.
+- Kategori merchant otomatis dengan aturan kata kunci bawaan dan aturan custom pengguna.
+- Batas pengeluaran harian berdasarkan sisa anggaran kategori dan sisa hari bulan berjalan.
+- Deteksi pola transaksi berulang dan tombol untuk menjadikannya transaksi berulang.
+- Rekonsiliasi saldo akun/dompet dengan histori selisih saldo aktual.
+- Split bill dengan pembagian nominal, daftar peserta, dan status pembayaran tiap peserta.
+- Pusat fitur finansial yang scrollable untuk target keuangan, analisis, dan status offline-first.
+- Sheet Excel tambahan untuk Split Bill serta laporan Bisnis & Pajak.
+- Koleksi fitur baru masuk ke backup `.bibzcup` XML/HMAC dan tetap kompatibel dengan backup versi lama.
+
+### Improved
+
+- Flutter Web tetap dapat dibuild karena OCR memakai conditional platform implementation.
+- OCR dipin ke `google_mlkit_text_recognition` 0.16.0 yang kompatibel dengan Dart 3.8.1/Flutter 3.32.1.
+- Deployment target iOS dinaikkan ke 15.5 sesuai minimum ML Kit.
+- VersionCode metadata updater memakai `2020` untuk varian arm64-v8a dan `baseVersionCode` `20` agar perbandingan split APK konsisten.
+
 ## [1.4.0] - 2026-08-21
 
 ### Test Release

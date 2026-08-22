@@ -33,10 +33,7 @@ String categoryLabel(ExpenseCategory category) => category.label;
 /// ID fallback yang stabil (deterministik dari isi entry) untuk data lama
 /// atau hasil restore yang kehilangan field `id`. Stabilitas penting supaya
 /// entry yang sama tidak diduplikasi saat merge restore dijalankan ulang.
-String _stableFallbackId(
-  Map<String, dynamic> json, {
-  required String prefix,
-}) {
+String _stableFallbackId(Map<String, dynamic> json, {required String prefix}) {
   final declared = json['id'];
   if (declared is String && declared.isNotEmpty) return declared;
   // Toleran terhadap id lama yang tersimpan sebagai angka (lihat json_helpers).
@@ -66,6 +63,12 @@ class ExpenseEntry {
     this.imagePath,
     this.accountId,
     this.recurringId,
+    this.merchantName = '',
+    this.receiptText = '',
+    this.isBusiness = false,
+    this.taxDeductible = false,
+    this.taxAmount = 0,
+    this.splitBillId,
     this.isSettled = false,
     required this.createdAt,
   });
@@ -79,6 +82,12 @@ class ExpenseEntry {
   final String? imagePath;
   final String? accountId;
   final String? recurringId;
+  final String merchantName;
+  final String receiptText;
+  final bool isBusiness;
+  final bool taxDeductible;
+  final double taxAmount;
+  final String? splitBillId;
   final bool isSettled;
   final DateTime createdAt;
 
@@ -93,6 +102,12 @@ class ExpenseEntry {
     String? accountId,
     bool clearAccount = false,
     String? recurringId,
+    String? merchantName,
+    String? receiptText,
+    bool? isBusiness,
+    bool? taxDeductible,
+    double? taxAmount,
+    String? splitBillId,
     bool? isSettled,
   }) {
     return ExpenseEntry(
@@ -105,6 +120,12 @@ class ExpenseEntry {
       imagePath: clearImage ? null : (imagePath ?? this.imagePath),
       accountId: clearAccount ? null : accountId ?? this.accountId,
       recurringId: recurringId ?? this.recurringId,
+      merchantName: merchantName ?? this.merchantName,
+      receiptText: receiptText ?? this.receiptText,
+      isBusiness: isBusiness ?? this.isBusiness,
+      taxDeductible: taxDeductible ?? this.taxDeductible,
+      taxAmount: taxAmount ?? this.taxAmount,
+      splitBillId: splitBillId ?? this.splitBillId,
       isSettled: isSettled ?? this.isSettled,
       createdAt: createdAt,
     );
@@ -120,6 +141,12 @@ class ExpenseEntry {
     'imagePath': imagePath,
     'accountId': accountId,
     'recurringId': recurringId,
+    'merchantName': merchantName,
+    'receiptText': receiptText,
+    'isBusiness': isBusiness,
+    'taxDeductible': taxDeductible,
+    'taxAmount': taxAmount,
+    'splitBillId': splitBillId,
     'isSettled': isSettled,
     'createdAt': createdAt.toIso8601String(),
   };
@@ -143,6 +170,12 @@ class ExpenseEntry {
       imagePath: readNullableString(json['imagePath']),
       accountId: readNullableString(json['accountId']),
       recurringId: readNullableString(json['recurringId']),
+      merchantName: readString(json['merchantName']),
+      receiptText: readString(json['receiptText']),
+      isBusiness: readBool(json['isBusiness']),
+      taxDeductible: readBool(json['taxDeductible']),
+      taxAmount: roundMoney(readDouble(json['taxAmount'])),
+      splitBillId: readNullableString(json['splitBillId']),
       isSettled: json.containsKey('isSettled')
           ? readBool(json['isSettled'])
           : true,

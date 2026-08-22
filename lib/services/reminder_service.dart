@@ -7,7 +7,8 @@ import 'package:timezone/data/latest.dart' as tz_data;
 import 'package:timezone/timezone.dart' as tz;
 
 import '../models/reminder_models.dart';
-import 'finance_storage.dart' show StorageCorruptionReport, StorageCorruptionTracker;
+import 'finance_storage.dart'
+    show StorageCorruptionReport, StorageCorruptionTracker;
 
 class ReminderStorage {
   final StorageCorruptionTracker _corruption = StorageCorruptionTracker();
@@ -69,6 +70,13 @@ class ReminderService {
   final FlutterLocalNotificationsPlugin _plugin =
       FlutterLocalNotificationsPlugin();
   bool _initialized = false;
+  Future<void> Function(String? payload, String? actionId)? _actionHandler;
+
+  void setActionHandler(
+    Future<void> Function(String? payload, String? actionId) handler,
+  ) {
+    _actionHandler = handler;
+  }
 
   Future<void> initialize() async {
     if (_initialized) return;
@@ -82,7 +90,9 @@ class ReminderService {
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
     await _plugin.initialize(
       settings: const InitializationSettings(android: android),
-      onDidReceiveNotificationResponse: (_) {},
+      onDidReceiveNotificationResponse: (response) async {
+        await _actionHandler?.call(response.payload, response.actionId);
+      },
     );
     _initialized = true;
   }
@@ -111,11 +121,20 @@ class ReminderService {
       android: AndroidNotificationDetails(
         'catatbibz_reminders',
         'Pengingat CatatBibz',
+
         channelDescription:
             'Pengingat pembayaran, makan, ngopi, dan agenda pribadi.',
         importance: Importance.high,
         priority: Priority.high,
         icon: '@mipmap/ic_launcher',
+        actions: [
+          const AndroidNotificationAction(
+            'quick_expense',
+            'Catat cepat',
+            showsUserInterface: true,
+            cancelNotification: true,
+          ),
+        ],
       ),
     );
 

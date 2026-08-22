@@ -1,8 +1,8 @@
 {
-  "version": "1.4.0",
-  "versionCode": 2019,
-  "baseVersionCode": 19,
-  "releaseNotes": "Rilis pengujian updater 1.4.0. Metadata kompatibilitas memakai versionCode arm64-v8a 2019 agar APK lama arm64 build 2018 dapat mendeteksi update. Mempertahankan fallback raw GitHub dan Gist, deteksi ABI otomatis, pemilihan APK arm64-v8a atau universal, serta jadwal cek update.",
+  "version": "1.5.0",
+  "versionCode": 2020,
+  "baseVersionCode": 20,
+  "releaseNotes": "Rilis fitur finansial terpadu: transaksi cepat dari notifikasi, OCR struk di Android/iOS, batas pengeluaran harian, deteksi transaksi berulang, rekonsiliasi saldo, split bill dengan status peserta, target keuangan, kategori merchant otomatis, laporan bisnis/pajak, dan mode offline-first. Backup XML/HMAC serta ekspor spreadsheet diperluas.",
   "universalApkUrl": "https://github.com/XbibzOfficial777/catatan-pengeluaran/releases/latest/download/Catatan-Pengeluaran-universal.apk",
   "arm64ApkUrl": "https://github.com/XbibzOfficial777/catatan-pengeluaran/releases/latest/download/Catatan-Pengeluaran-arm64-v8a.apk"
 }

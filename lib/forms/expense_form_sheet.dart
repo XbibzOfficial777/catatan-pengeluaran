@@ -4,7 +4,9 @@ import 'package:image_picker/image_picker.dart';
 import '../core/format.dart';
 import '../models/advanced_finance_models.dart';
 import '../models/finance_models.dart';
+import '../services/category_rules_service.dart';
 import '../services/image_attachment_service.dart';
+import '../services/receipt_ocr_service.dart';
 import '../widgets/entry_actions.dart';
 import '../widgets/form_scaffolding.dart';
 
@@ -14,10 +16,12 @@ class ExpenseFormSheet extends StatefulWidget {
     this.entry,
     required this.imageService,
     required this.accounts,
+    this.categoryRules = const <MerchantCategoryRule>[],
   });
   final ExpenseEntry? entry;
   final ImageAttachmentService imageService;
   final List<MoneyAccount> accounts;
+  final List<MerchantCategoryRule> categoryRules;
 
   @override
   State<ExpenseFormSheet> createState() => _ExpenseFormSheetState();
@@ -27,11 +31,17 @@ class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
   late final TextEditingController _title;
   late final TextEditingController _amount;
   late final TextEditingController _note;
+  late final TextEditingController _merchant;
+  late final TextEditingController _receiptText;
+  late final TextEditingController _taxAmount;
   late ExpenseCategory _category;
   late DateTime _date;
   String? _imagePath;
   String? _accountId;
   bool _saving = false;
+  bool _isBusiness = false;
+  bool _taxDeductible = false;
+  bool _scanningReceipt = false;
 
   @override
   void initState() {
@@ -41,7 +51,16 @@ class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
       text: widget.entry == null ? '' : widget.entry!.amount.toStringAsFixed(0),
     );
     _note = TextEditingController(text: widget.entry?.note ?? '');
-    _category = widget.entry?.category ?? ExpenseCategory.food;
+    _merchant = TextEditingController(text: widget.entry?.merchantName ?? '');
+    _receiptText = TextEditingController(text: widget.entry?.receiptText ?? '');
+    _taxAmount = TextEditingController(
+      text: widget.entry == null || widget.entry!.taxAmount <= 0
+          ? ''
+          : widget.entry!.taxAmount.toStringAsFixed(0),
+    );
+    _category = widget.entry?.category ?? ExpenseCategory.other;
+    _isBusiness = widget.entry?.isBusiness ?? false;
+    _taxDeductible = widget.entry?.taxDeductible ?? false;
     _date = widget.entry?.date ?? DateTime.now();
     _imagePath = widget.entry?.imagePath;
     _accountId = widget.entry?.accountId;
@@ -52,6 +71,9 @@ class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
     _title.dispose();
     _amount.dispose();
     _note.dispose();
+    _merchant.dispose();
+    _receiptText.dispose();
+    _taxAmount.dispose();
     super.dispose();
   }
 
@@ -72,6 +94,46 @@ class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
     if (_imagePath != null && _imagePath != newPath)
       await widget.imageService.delete(_imagePath);
     if (mounted) setState(() => _imagePath = newPath);
+  }
+
+  Future<void> _scanReceipt() async {
+    if (_imagePath == null) {
+      await _chooseImage();
+    }
+    if (_imagePath == null || !mounted) return;
+    setState(() => _scanningReceipt = true);
+    try {
+      final result = await ReceiptOcrService.instance.scanFile(_imagePath!);
+      if (!mounted) return;
+      if (result.merchant != null && result.merchant!.isNotEmpty) {
+        _merchant.text = result.merchant!;
+      }
+      if (result.amount != null && result.amount! > 0) {
+        _amount.text = result.amount!.toStringAsFixed(0);
+      }
+      if (result.date != null) _date = result.date!;
+      if (result.text.isNotEmpty) _receiptText.text = result.text;
+      _category = CategoryRulesService.suggest(
+        title: _title.text,
+        merchant: _merchant.text,
+        rules: widget.categoryRules,
+      );
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Struk berhasil dibaca. Periksa kembali hasil OCR sebelum menyimpan.',
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('OCR tidak dapat digunakan: $error')),
+      );
+    } finally {
+      if (mounted) setState(() => _scanningReceipt = false);
+    }
   }
 
   Future<void> _removeImage() async {
@@ -101,6 +163,15 @@ class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
       );
       return;
     }
+    final suggestedCategory = CategoryRulesService.suggest(
+      title: title,
+      merchant: _merchant.text,
+      rules: widget.categoryRules,
+    );
+    if (_category == ExpenseCategory.other &&
+        suggestedCategory != ExpenseCategory.other) {
+      _category = suggestedCategory;
+    }
     setState(() => _saving = true);
     Navigator.pop(
       context,
@@ -113,6 +184,11 @@ class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
         note: _note.text.trim(),
         imagePath: _imagePath,
         accountId: _accountId,
+        merchantName: _merchant.text.trim(),
+        receiptText: _receiptText.text.trim(),
+        isBusiness: _isBusiness,
+        taxDeductible: _taxDeductible,
+        taxAmount: parseAmount(_taxAmount.text),
         recurringId: widget.entry?.recurringId,
         createdAt: widget.entry?.createdAt ?? DateTime.now(),
       ),
@@ -206,6 +282,27 @@ class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
           ],
           const SizedBox(height: 13),
           TextField(
+            controller: _merchant,
+            textCapitalization: TextCapitalization.words,
+            decoration: const InputDecoration(
+              labelText: 'Merchant/toko (opsional)',
+              hintText: 'Contoh: Warung, Tokopedia, PLN',
+              prefixIcon: Icon(Icons.storefront_outlined),
+            ),
+            onChanged: (value) {
+              if (_category == ExpenseCategory.other) {
+                setState(() {
+                  _category = CategoryRulesService.suggest(
+                    title: _title.text,
+                    merchant: value,
+                    rules: widget.categoryRules,
+                  );
+                });
+              }
+            },
+          ),
+          const SizedBox(height: 13),
+          TextField(
             controller: _note,
             textCapitalization: TextCapitalization.sentences,
             maxLines: 3,
@@ -221,6 +318,62 @@ class _ExpenseFormSheetState extends State<ExpenseFormSheet> {
             onRemove: _removeImage,
             colors: colors,
           ),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _scanningReceipt ? null : _scanReceipt,
+              icon: _scanningReceipt
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.document_scanner_outlined),
+              label: Text(
+                _scanningReceipt ? 'Membaca struk...' : 'Scan struk dengan OCR',
+              ),
+            ),
+          ),
+          if (_receiptText.text.isNotEmpty) ...[
+            const SizedBox(height: 10),
+            TextField(
+              controller: _receiptText,
+              maxLines: 3,
+              decoration: const InputDecoration(
+                labelText: 'Teks struk (hasil OCR)',
+                prefixIcon: Icon(Icons.notes_outlined),
+              ),
+            ),
+          ],
+          const SizedBox(height: 10),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Transaksi bisnis/usaha'),
+            subtitle: const Text(
+              'Pisahkan dari pengeluaran pribadi pada laporan.',
+            ),
+            value: _isBusiness,
+            onChanged: (value) => setState(() => _isBusiness = value),
+          ),
+          SwitchListTile.adaptive(
+            contentPadding: EdgeInsets.zero,
+            title: const Text('Dapat dikurangkan dari pajak'),
+            value: _taxDeductible,
+            onChanged: (value) => setState(() => _taxDeductible = value),
+          ),
+          if (_taxDeductible) ...[
+            const SizedBox(height: 4),
+            TextField(
+              controller: _taxAmount,
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
+              ),
+              decoration: const InputDecoration(
+                labelText: 'Nominal pajak (opsional)',
+                prefixText: 'Rp  ',
+              ),
+            ),
+          ],
           const SizedBox(height: 22),
           SizedBox(
             width: double.infinity,

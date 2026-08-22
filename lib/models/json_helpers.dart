@@ -62,6 +62,28 @@ T readEnum<T extends Enum>(Iterable<T> values, dynamic value, T fallback) {
   return fallback;
 }
 
+List<String> readStringList(dynamic value) {
+  if (value is! List) return const <String>[];
+  return value
+      .map((item) => item?.toString().trim() ?? '')
+      .where((item) => item.isNotEmpty)
+      .toList(growable: false);
+}
+
+List<T> readList<T>(dynamic value, T Function(Map<String, dynamic>) parser) {
+  if (value is! List) return <T>[];
+  final results = <T>[];
+  for (final item in value) {
+    if (item is! Map) continue;
+    try {
+      results.add(parser(Map<String, dynamic>.from(item)));
+    } catch (_) {
+      // Ignore only the malformed child; preserve all valid siblings.
+    }
+  }
+  return results;
+}
+
 List<int> readIntList(dynamic value) {
   if (value is! List) return const <int>[];
   return value

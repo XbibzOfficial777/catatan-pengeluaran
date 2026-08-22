@@ -35,10 +35,27 @@ void main() {
         XmlElement.tag('files'),
       ],
     );
-    final pretty = XmlDocument([original])
-        .toXmlString(pretty: true, indent: '  ');
+    final pretty = XmlDocument([
+      original,
+    ]).toXmlString(pretty: true, indent: '  ');
     final parsed = XmlDocument.parse(pretty).rootElement;
 
     expect(service.canonicalize(parsed), service.canonicalize(original));
+  });
+
+  test('nested JSON fields round-trip through XML entry parser', () {
+    final service = BackupIntegrityService();
+    final entry = service.createEntry('splitBill', {
+      'title': 'Makan bersama',
+      'participants': [
+        {'id': '1', 'name': 'A', 'amount': 50000},
+        {'id': '2', 'name': 'B', 'amount': 50000},
+      ],
+    });
+    final parsed = service.parseEntry(entry);
+    expect(parsed['title'], 'Makan bersama');
+    expect(parsed['participants'], isA<List>());
+    expect((parsed['participants'] as List).length, 2);
+    expect((parsed['participants'] as List).first['name'], 'A');
   });
 }

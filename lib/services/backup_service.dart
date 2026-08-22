@@ -24,6 +24,11 @@ class BackupService {
     List<BudgetLimit> budgets = const <BudgetLimit>[],
     List<RecurringExpense> recurring = const <RecurringExpense>[],
     List<SavingsGoal> savingsGoals = const <SavingsGoal>[],
+    List<SplitBill> splitBills = const <SplitBill>[],
+    List<ReconciliationSnapshot> reconciliationSnapshots =
+        const <ReconciliationSnapshot>[],
+    List<MerchantCategoryRule> merchantCategoryRules =
+        const <MerchantCategoryRule>[],
     bool privacyMode = false,
   }) async {
     await _requestStoragePermission();
@@ -95,6 +100,21 @@ class BackupService {
         }
         savingsXml.add(_integrity.createEntry('savingsGoal', data));
       }
+      final splitBillXml = splitBills
+          .map((item) => _integrity.createEntry('splitBill', item.toJson()))
+          .toList();
+      final reconciliationXml = reconciliationSnapshots
+          .map(
+            (item) =>
+                _integrity.createEntry('reconciliationSnapshot', item.toJson()),
+          )
+          .toList();
+      final merchantRuleXml = merchantCategoryRules
+          .map(
+            (item) =>
+                _integrity.createEntry('merchantCategoryRule', item.toJson()),
+          )
+          .toList();
       final fileXml = <XmlElement>[];
       await for (final entity in photos.list()) {
         if (entity is! File) continue;
@@ -113,6 +133,9 @@ class BackupService {
         budgets: budgetXml,
         recurring: recurringXml,
         savingsGoals: savingsXml,
+        splitBills: splitBillXml,
+        reconciliationSnapshots: reconciliationXml,
+        merchantCategoryRules: merchantRuleXml,
         privacyMode: privacyMode,
         files: fileXml,
       );

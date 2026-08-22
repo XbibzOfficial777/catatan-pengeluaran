@@ -109,6 +109,9 @@ class FinanceStorage {
   static const _onboardingKey = 'onboarding_completed_v1';
   static const _lastSeenVersionKey = 'last_seen_app_version_v1';
   static const _updateScheduleKey = 'update_check_interval_minutes_v1';
+  static const _splitBillsKey = 'split_bills_v1';
+  static const _reconciliationKey = 'reconciliation_snapshots_v1';
+  static const _merchantRulesKey = 'merchant_category_rules_v1';
 
   Future<String> loadLanguage() async {
     final preferences = await SharedPreferences.getInstance();
@@ -249,6 +252,57 @@ class FinanceStorage {
         final preferences = await SharedPreferences.getInstance();
         await preferences.setString(
           _savingsKey,
+          jsonEncode(entries.map((entry) => entry.toJson()).toList()),
+        );
+      });
+
+  Future<List<SplitBill>> loadSplitBills() async {
+    final preferences = await SharedPreferences.getInstance();
+    return _decodeList(preferences, _splitBillsKey, SplitBill.fromJson);
+  }
+
+  Future<void> saveSplitBills(List<SplitBill> entries) =>
+      _enqueueWrite(() async {
+        final preferences = await SharedPreferences.getInstance();
+        await preferences.setString(
+          _splitBillsKey,
+          jsonEncode(entries.map((entry) => entry.toJson()).toList()),
+        );
+      });
+
+  Future<List<ReconciliationSnapshot>> loadReconciliationSnapshots() async {
+    final preferences = await SharedPreferences.getInstance();
+    return _decodeList(
+      preferences,
+      _reconciliationKey,
+      ReconciliationSnapshot.fromJson,
+    );
+  }
+
+  Future<void> saveReconciliationSnapshots(
+    List<ReconciliationSnapshot> entries,
+  ) => _enqueueWrite(() async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(
+      _reconciliationKey,
+      jsonEncode(entries.map((entry) => entry.toJson()).toList()),
+    );
+  });
+
+  Future<List<MerchantCategoryRule>> loadMerchantCategoryRules() async {
+    final preferences = await SharedPreferences.getInstance();
+    return _decodeList(
+      preferences,
+      _merchantRulesKey,
+      MerchantCategoryRule.fromJson,
+    );
+  }
+
+  Future<void> saveMerchantCategoryRules(List<MerchantCategoryRule> entries) =>
+      _enqueueWrite(() async {
+        final preferences = await SharedPreferences.getInstance();
+        await preferences.setString(
+          _merchantRulesKey,
           jsonEncode(entries.map((entry) => entry.toJson()).toList()),
         );
       });

@@ -1,7 +1,7 @@
 name: catatan_pengeluaran
 description: "Catatan Pengeluaran — pencatatan pengeluaran, hutang, dan lampiran foto."
 publish_to: 'none'
-version: 1.4.0+19
+version: 1.5.0+20
 
 environment:
   sdk: '>=3.8.0 <4.0.0'
@@ -34,6 +34,7 @@ dependencies:
   flutter_markdown_plus: ^1.0.7
   fl_chart: 0.70.2
   flutter_svg: ^2.2.3
+  google_mlkit_text_recognition: 0.16.0
   home_widget: ^0.9.2+1
   pdf: 3.11.3
   printing: ^5.14.3
